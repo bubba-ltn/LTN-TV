@@ -250,17 +250,10 @@ async function ltnLoad(force) {
   ltnAt = Date.now();
 }
 const ltnLiveSnap = () => ({ yt: ltnLiveMap, tw: ltnTw ? { live: !!ltnTw.live, title: ltnTw.title, game: ltnTw.game, uptime: ltnTw.uptime } : null });
-function ltnApplyLive(s) { // the hidden NDI copy receives this from the visible window
-  if (!s) return;
-  const before = JSON.stringify(ltnLiveSnap());
-  ltnLiveMap = s.yt || {}; if (s.tw) ltnTw = { ...(ltnTw || {}), ...s.tw };
-  if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
-}
 function ltnLiveChanged() {
   if (mode === "guide") renderGuide();
   const ch = channels[tuned];
   if (started && ltnIsOwn(ch) && ch.kind !== "ltn" && ltnSig(ch) !== ltnTunedSig) tune(tuned, false); // went live or ended: switch what is playing
-  syncOut();
 }
 async function ltnLivePoll() {
   const before = JSON.stringify(ltnLiveSnap());
@@ -279,8 +272,7 @@ async function ltnPollTuned() {
   } catch { return; }
   if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
 }
-function ltnStart() { // called once the lineup is known (visible window only: the NDI copy is told what is live)
-  if (NDI_MODE) return;
+function ltnStart() { // called once the lineup is known
   ltnLoad(false).catch(() => {});
   ltnLivePoll();
   setTimeout(ltnWarm, 20000);
@@ -415,7 +407,7 @@ async function playLtn(ch, gen) {
   loadingOn(false);
   $("#ltn").classList.add("on");
   ltnPage = 0; ltnDraw();
-  if (!NDI_MODE && LTN.music) { // the music: always playing, sound only
+  if (LTN.music) { // the music: always playing, sound only
     const m = $("#ytm");
     m.onload = () => ytAudioSoon();
     m.src = ytEmbed(LTN.music + "?playlist=" + LTN.music);
@@ -527,7 +519,7 @@ async function ltnWarm() { // load every channel's list in the background (one a
 
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
 let ytJumpVid = "", ytRecent = [];
-let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "", ytFollowVid = 0;
+let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "";
 const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
 function ytCmd(func, args) {
   const f = $("#ytf");
@@ -538,8 +530,8 @@ function ytmCmd(func, args) {
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
 }
 let ytSent = {}; // what each player was last told
-function ytAudio(force) { // follow the window's volume and mute (the hidden NDI copy is always silent here: YouTube's player cannot be captured for NDI audio)
-  const quiet = !!(NDI_MODE || S.muteWindow), vol = Math.round(Math.min(1, Math.max(0, S.volume)) * 100), key = quiet + ":" + vol;
+function ytAudio(force) { // follow the window's volume and mute
+  const quiet = !!S.muteWindow, vol = Math.round(Math.min(1, Math.max(0, S.volume)) * 100), key = quiet + ":" + vol;
   const tell = (name, ready, cmd) => { if (!ready || (!force && ytSent[name] === key)) return; ytSent[name] = key; cmd(quiet ? "mute" : "unMute"); cmd("setVolume", [vol]); };
   tell("ytm", /youtube/.test($("#ytm").getAttribute("src") || ""), ytmCmd);
   tell("ytf", /youtube/.test($("#ytf").getAttribute("src") || ""), ytCmd);
@@ -611,11 +603,11 @@ function ytOnError() {
   ytSched = ltnBuildSchedule(rest, ytSched.seed);
   if (ytSchedCtx && ltnLists[ytSchedCtx.ytid]) ltnLists[ytSchedCtx.ytid].sched = ytSched;
 }
-// a show channel is "already on": pick the programme from the wall clock so everyone (and the NDI copy) sees the same thing, and join part-way in
+// a show channel is "already on": pick the programme from the wall clock so everyone sees the same thing, and join part-way in
 const ytHash = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 function ytPosition() {
   const ch = ltnPlayCh();
-  if (NDI_MODE || !ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2 || ltnSchedOn(ch)) return;
+  if (!ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2 || ltnSchedOn(ch)) return;
   const pl = ytInfo.playlist;
   if (!Array.isArray(pl) || !pl.length) return;
   const now = Date.now() / 1000, slot = 4 * 3600;
@@ -661,7 +653,7 @@ addEventListener("message", (e) => {
 });
 function ytAdvance() {
   const ch = ltnPlayCh();
-  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive || ltnSchedOn(ch)) return;
+  if (!ch || ch.kind !== "yt" || ltnTunedLive || ltnSchedOn(ch)) return;
   if (ch.yt.wall && ytPos !== 2) return; // still joining part-way through
   const d = ytInfo.duration, t = ytInfo.currentTime, pl = ytInfo.playlist, vid = ytInfo.videoData && ytInfo.videoData.video_id, cur = ytInfo.playlistIndex;
   if (!(d > 20) || t == null || !Array.isArray(pl) || pl.length < 2 || !vid || cur == null || ytJumpVid === vid) return;
@@ -691,26 +683,11 @@ async function ytGo(cur, pl, random) {
 // a video that starts and turns out to be a Short (the playlist moved on by itself, or the clock picked it): skip it at once
 async function ytSkipIfShort(vid) {
   const ch = ltnPlayCh();
-  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive || !(await ytIsShort(vid))) return;
+  if (!ch || ch.kind !== "yt" || ltnTunedLive || !(await ytIsShort(vid))) return;
   if (!ytInfo.videoData || ytInfo.videoData.video_id !== vid) return; // already moved on
   const pl = ytInfo.playlist, cur = ytInfo.playlistIndex;
   if (Array.isArray(pl) && pl.length > 1 && cur != null) ytGo(cur, pl, !!ch.yt.random);
 }
-// the visible window reports where the playlist is; the hidden NDI copy follows it
-const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && !ltnSchedOn(ltnPlayCh()) && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0, vid: (ytInfo.videoData && ytInfo.videoData.video_id) || "" } : undefined);
-let ytFollowAt = 0;
-function ytFollow(y) {
-  const ch = ltnPlayCh();
-  if (!y || !ch || ch.kind !== "yt" || ltnTunedLive || ltnSchedOn(ch)) return;
-  if (ytInfo.playlistIndex == null || ytInfo.currentTime == null) return; // the copy has not reported yet: do not guess
-  if (ch.yt.random) { // shuffled: play the same video at the same point
-    const mine = (ytInfo.videoData && ytInfo.videoData.video_id) || "";
-    if (y.vid && mine !== y.vid) { if (Date.now() - ytFollowVid > 8000) { ytFollowVid = Date.now(); ytFollowAt = Date.now(); ytCmd("loadVideoById", [y.vid, y.t]); } return; }
-  } else if (ytInfo.playlistIndex !== y.idx && Date.now() - ytFollowAt >= 30000) { ytFollowAt = Date.now(); ytCmd("playVideoAt", [y.idx]); return; }
-  if (Date.now() - ytFollowAt < 30000) return; // at most one correction every 30 s
-  if (Math.abs(ytInfo.currentTime - y.t) > 15) { ytFollowAt = Date.now(); ytCmd("seekTo", [y.t, true]); }
-}
-
 /* ---------- Twitch: the live stream, or the trailer while offline ---------- */
 function ltnTwitchLib() {
   return window.Twitch && window.Twitch.Player ? Promise.resolve() : new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://player.twitch.tv/js/embed/v1.js"; s.onload = res; s.onerror = rej; document.head.append(s); });
@@ -792,7 +769,7 @@ function ltnStop() {
 /* ---------- keep the picture still, and leave a trail if something moves it ---------- */
 (() => {
   let n = 0;
-  const diag = (...a) => { if (n++ < 300) console.error("DIAG", NDI_MODE ? "ndi" : "window", ...a); };
+  const diag = (...a) => { if (n++ < 300) console.error("DIAG", "window", ...a); };
   // nothing here should ever scroll; if it does, say so and put it back at once
   addEventListener("scroll", () => { diag("scroll", window.scrollX, window.scrollY, document.documentElement.scrollLeft, document.body.scrollLeft); window.scrollTo(0, 0); document.documentElement.scrollLeft = 0; document.body.scrollLeft = 0; }, true);
   if (window.visualViewport) for (const ev of ["scroll", "resize"]) visualViewport.addEventListener(ev, () => diag("visualViewport", ev, Math.round(visualViewport.offsetLeft), Math.round(visualViewport.offsetTop), Math.round(visualViewport.width), Math.round(visualViewport.height)));
