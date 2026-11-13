@@ -1,7 +1,7 @@
 {
   "name": "ltn-tv",
   "productName": "LTN TV",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "LTN TV: Love Thy Nerd, always on.",
   "main": "main.js",
   "author": "Love Thy Nerd",
@@ -11,8 +11,7 @@
     "dist": "electron-builder --win nsis portable"
   },
   "dependencies": {
-    "hls.js": "^1.5.0",
-    "@stagetimerio/grandiose": "^0.2.1"
+    "hls.js": "^1.5.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -31,9 +30,7 @@
       "icon.png",
       "renderer/**/*",
       "node_modules/hls.js/dist/hls.min.js",
-      "node_modules/hls.js/package.json",
-      "node_modules/@stagetimerio/grandiose/dist/**/*",
-      "node_modules/@stagetimerio/grandiose/package.json"
+      "node_modules/hls.js/package.json"
     ],
     "win": {
       "target": [
@@ -55,10 +52,6 @@
     },
     "portable": {
       "artifactName": "LTN-TV-Portable-${version}.${ext}"
-    },
-    "asarUnpack": [
-      "node_modules/@stagetimerio/grandiose/dist/**"
-    ],
-    "npmRebuild": false
+    }
   }
 }

@@ -1,7 +1,6 @@
-// LTN TV for Windows (built from the BackWhenTV player): the Love Thy Nerd channels, the guide, settings, NDI output.
+// LTN TV for Windows (built from the BackWhenTV player): the Love Thy Nerd channels, the guide and settings.
 // and our own bumper clips covering Pluto's looping placeholder. Same rules as the Android app.
 const BASE = "https://backwhen.stream";
-const NDI_MODE = new URLSearchParams(location.search).has("ndi"); // the hidden 1920x1080 copy that feeds NDI
 const VERSION = "1.0";
 const $ = (s) => document.querySelector(s);
 const v = $("#v"), v2 = $("#v2");
@@ -11,7 +10,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { spotifyLinks: "", twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "LTN TV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { spotifyLinks: "", twitchTrailer: "", volume: 0.8, muteWindow: false, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -20,9 +19,9 @@ function setS(p) {
   applyS();
 }
 function applyS() {
-  const vol = NDI_MODE ? 1 : clamp01(S.volume);
+  const vol = clamp01(S.volume);
   v.volume = vol; v2.volume = vol;
-  muted = NDI_MODE ? false : !!S.muteWindow; // the speakers; NDI audio has its own mute in the main process
+  muted = !!S.muteWindow; // the speakers
   v.muted = muted || swapActive; v2.muted = muted;
   if (mode === "guide") renderGuide();
   if (settingsOpen) renderSettings();
@@ -162,7 +161,6 @@ function tune(idx, showBanner = true) {
   else playSlot(ch, gen, 0);
   if (showBanner) banner();
   renderGuide();
-  syncOut();
 }
 
 function playSlot(ch, gen, skip) {
@@ -425,7 +423,7 @@ const usage = (() => {
   let cur = null, since = 0;
   const flushCur = () => { if (cur && started) { const m = Math.round((Date.now() - since) / 60000); if (m > 0) { watched[cur] = (watched[cur] || 0) + m; since += m * 60000; } } };
   setInterval(() => {
-    if (NDI_MODE || LTN.ltnOnly) return; // the hidden NDI copy is not a viewer, and LTN TV sends no usage statistics
+    if (LTN.ltnOnly) return; // LTN TV sends no usage statistics
     flushCur();
     const body = JSON.stringify({ id, p: "windows", v: VERSION, w: watched });
     fetch(BASE + "/api/ev", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => { for (const k of Object.keys(watched)) delete watched[k]; }).catch(() => {});
@@ -558,7 +556,7 @@ function gFit() {
   else if (gCur >= gView + SPAN) gView = floorHalf(gCur) - SPAN + HALF;
   if (gView < floorHalf(now)) gView = floorHalf(now);
 }
-function gAfter() { gFit(); renderGuide(); preview.request(channels[gCh]); syncOut(); }
+function gAfter() { gFit(); renderGuide(); preview.request(channels[gCh]); }
 function gMoveCh(d, wrap = true) {
   const list = chList(), n = list.length;
   const p = Math.max(0, list.indexOf(gCh));
@@ -584,7 +582,6 @@ function setMode(m) {
     $("#banner").classList.remove("on");
     renderGuide(); preview.request(channels[gCh]);
   } else preview.stop();
-  syncOut();
 }
 
 /* live preview: the highlighted channel plays in the corner while you browse */
@@ -653,63 +650,7 @@ function setVol(dv) {
   flash("VOLUME " + Math.round(S.volume * 100));
 }
 function toggleMute() { setS({ muteWindow: !S.muteWindow }); flash(S.muteWindow ? "MUTE" : "VOLUME " + Math.round(S.volume * 100)); }
-v.volume = NDI_MODE ? 1 : 0.8; // replaced by the saved setting as soon as it loads
-
-/* ---------- NDI output ---------- */
-// The visible window only asks for NDI (D) and reports what it shows. The hidden 1920x1080 copy (?ndi=1) follows it, plays its own streams
-// and taps its own audio, so NDI is always the fullscreen picture no matter how the visible window is sized or whether it is minimized.
-let ndiOn = false, ndiCtx = null;
-function syncOut(force) {
-  if (NDI_MODE || (!ndiOn && !force) || !window.bw || !window.bw.ndiState) return;
-  const ch = channels[tuned], gc = channels[gCh];
-  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView, yt: ytSync(), live: ltnLiveSnap() });
-}
-async function toggleNdi() {
-  if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
-  flash(ndiOn ? "NDI STOPPING..." : "NDI STARTING...");
-  await window.bw.ndiToggle(); // the answer arrives as an ndi-status event
-}
-if (!NDI_MODE && window.bw && window.bw.onNdiStatus) window.bw.onNdiStatus((r) => {
-  ndiOn = !!r.on;
-  if (r.error) { console.error("NDI:", r.error); flash("NDI UNAVAILABLE"); }
-  else flash(ndiOn ? "NDI ON: " + (r.name || "LTN TV") : "NDI OFF");
-  if (settingsOpen) renderSettings();
-  if (ndiOn) syncOut(true);
-});
-async function ndiAudioStart() {
-  v.crossOrigin = v2.crossOrigin = "anonymous"; // lets the audio graph read the media
-  ndiCtx = new AudioContext({ sampleRate: 48000 });
-  await ndiCtx.audioWorklet.addModule("ndi-worklet.js");
-  const mix = ndiCtx.createGain();
-  ndiCtx.createMediaElementSource(v).connect(mix);
-  ndiCtx.createMediaElementSource(v2).connect(mix);
-  const tap = new AudioWorkletNode(ndiCtx, "ndi-tap", { numberOfOutputs: 1, outputChannelCount: [2] });
-  tap.port.onmessage = (e) => window.bw.ndiAudio(e.data, ndiCtx.sampleRate, 1024);
-  mix.connect(tap); tap.connect(ndiCtx.destination); // the tap outputs silence; it only has to be in the graph to be pulled
-}
-function applySync(s) {
-  if (!channels.length || !s || !s.started) return;
-  const ti = channels.findIndex((c) => c.id === s.ch);
-  if (!started) { if (ti >= 0) tuned = ti; begin(); }
-  else if (ti >= 0 && ti !== tuned) tune(ti, true);
-  if (s.mode !== mode) setMode(s.mode);
-  ltnApplyLive(s.live);
-  ytFollow(s.yt);
-  if (s.mode === "guide") {
-    const gi = channels.findIndex((c) => c.id === s.gch);
-    if (gi >= 0) gCh = gi;
-    gCur = s.gCur; gView = s.gView;
-    renderGuide(); preview.request(channels[gCh]);
-  }
-}
-async function initNdiWindow() {
-  await bootP;
-  if (!window.bw) return;
-  await ndiAudioStart();
-  window.bw.onNdiSync(applySync);
-  window.bw.ndiReady();
-}
-if (!NDI_MODE && window.bw && window.bw.onNdiResend) window.bw.onNdiResend(() => syncOut(true));
+v.volume = 0.8; // replaced by the saved setting as soon as it loads
 
 /* ---------- settings menu ---------- */
 let settingsOpen = false, sSel = 0, sTop = 0, sEdit = null;
@@ -724,11 +665,6 @@ function cycleStart(d) {
 const settingRows = () => [
   { l: "VOLUME", v: () => Math.round(S.volume * 100) + "%", adj: (d) => setS({ volume: Math.round(clamp01(S.volume + d * 0.05) * 100) / 100 }) },
   { l: "MUTE WINDOW", v: () => onoff(S.muteWindow), tog: () => setS({ muteWindow: !S.muteWindow }) },
-  { l: "NDI OUTPUT", v: () => onoff(ndiOn), tog: () => toggleNdi() },
-  { l: "MUTE NDI AUDIO", v: () => onoff(S.muteNdi), tog: () => setS({ muteNdi: !S.muteNdi }) },
-  { l: "START NDI WITH THE APP", v: () => onoff(S.ndiOnStart), tog: () => setS({ ndiOnStart: !S.ndiOnStart }) },
-  { l: "NDI AUDIO OFFSET (MS, + = LATER)", v: () => (S.ndiAudioOffset > 0 ? "+" : "") + S.ndiAudioOffset, adj: (d) => setS({ ndiAudioOffset: Math.max(-1000, Math.min(1000, (S.ndiAudioOffset || 0) + d * 10)) }) },
-  { l: "NDI SOURCE NAME", v: () => S.ndiName, edit: { init: () => S.ndiName, max: 32, set: (t) => setS({ ndiName: t.trim() || "LTN TV" }) } },
   { l: "START FULLSCREEN (NEXT LAUNCH)", v: () => onoff(S.startFullscreen), tog: () => setS({ startFullscreen: !S.startFullscreen }) },
   { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
   { l: "CLOSE BUTTON GOES TO TRAY", v: () => onoff(S.closeToTray), tog: () => setS({ closeToTray: !S.closeToTray }) },
@@ -776,7 +712,7 @@ function settingAct(dir) { // dir: -1/+1 from arrows, 0 from Enter or a click
   else if (!dir && r.tog) r.tog();
   renderSettings();
 }
-function openSettings() { if (NDI_MODE) return; settingsOpen = true; sEdit = null; $("#settings").classList.add("on"); $("#banner").classList.remove("on"); renderSettings(); }
+function openSettings() { settingsOpen = true; sEdit = null; $("#settings").classList.add("on"); $("#banner").classList.remove("on"); renderSettings(); }
 function closeSettings() { settingsOpen = false; sEdit = null; $("#settings").classList.remove("on"); }
 function settingsKey(e) {
   const k = e.key, rows = settingRows();
@@ -795,6 +731,20 @@ function settingsKey(e) {
   renderSettings(); e.preventDefault();
 }
 
+/* ---------- close prompt: Esc, or the window's X, asks before the app closes ---------- */
+let quitOpen = false;
+function askQuit() {
+  quitOpen = true;
+  $("#quit").classList.add("on");
+  $("#banner").classList.remove("on");
+  if (window.bw && window.bw.quitPromptShown) window.bw.quitPromptShown(); // tells the app the question is on screen
+}
+function closeQuit() { quitOpen = false; $("#quit").classList.remove("on"); }
+function doQuit() { if (window.bw) window.bw.quit(); else window.close(); }
+if (window.bw && window.bw.onAskQuit) window.bw.onAskQuit(() => askQuit());
+$("#qyes").onclick = doQuit;
+$("#qno").onclick = closeQuit;
+
 /* ---------- input ---------- */
 const toggleFs = () => (window.bw ? window.bw.fullscreen() : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
 function begin() {
@@ -804,6 +754,13 @@ function begin() {
   tune(tuned, true);
 }
 addEventListener("keydown", (e) => {
+  if (quitOpen) { // the close question is up: Enter or Y closes, Esc or N keeps watching
+    const k = e.key;
+    if (k === "Enter" || k === "y" || k === "Y") doQuit();
+    else if (k === "Escape" || k === "n" || k === "N" || k === "Backspace") closeQuit();
+    e.preventDefault();
+    return;
+  }
   if (!channels.length) return;
   if (!started) { begin(); e.preventDefault(); return; }
   if (settingsOpen) return settingsKey(e);
@@ -822,12 +779,11 @@ addEventListener("keydown", (e) => {
   else if (k === "Enter" || k === " ") { if (g) { tune(gCh); setMode("tv"); } else setMode("guide"); }
   else if (k === "g" || k === "G") setMode(g ? "tv" : "guide");
   else if (k === "i" || k === "I") banner();
-  else if ((k === "d" || k === "D") && !NDI_MODE) toggleNdi();
   else if (k === "m" || k === "M") toggleMute();
   else if (k === "+" || k === "=") setVol(0.05);
   else if (k === "-" || k === "_") setVol(-0.05);
   else if (k === "f" || k === "F" || k === "F11") toggleFs();
-  else if (k === "Escape" || k === "Backspace") { if (g) setMode("tv"); else if (window.bw && k === "Escape") toggleFs(); }
+  else if (k === "Escape" || k === "Backspace") { if (g) setMode("tv"); else if (k === "Escape") askQuit(); }
   else if (k === "q" || k === "Q") { if (window.bw) window.bw.quit(); }
   else return;
   e.preventDefault();
@@ -838,9 +794,7 @@ document.addEventListener("dblclick", toggleFs);
 let idleT;
 addEventListener("mousemove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 2500); });
 setInterval(() => { if (mode === "guide") { renderGuide(); if (ltnIsOwn(channels[gCh])) ltnPreview(channels[gCh]); } }, 15000);
-setInterval(() => { if (!NDI_MODE && ndiOn) syncOut(); }, 5000); // keeps the NDI copy of the playlist in step
 addEventListener("resize", () => mode === "guide" && renderGuide());
 // test hook: press T on a Pluto channel to force a bumper swap as if a 25 s placeholder were looping
 addEventListener("keydown", (e) => { if (e.shiftKey && (e.key === "T") && started && hls) startSwap(25); });
 const bootP = boot().catch(() => { $("#start .go").textContent = "COULD NOT REACH THE CABLE COMPANY - CHECK YOUR INTERNET"; });
-if (NDI_MODE) initNdiWindow();

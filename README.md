@@ -21,15 +21,9 @@ Windows may show "Windows protected your PC" because the app isn't code-signed y
 
 ## Keys
 
-Up/Down channel, 0-9 go to a channel, **Enter** or **G** guide, **H** favorite, **V** favorites only, **S** settings, **D** NDI output on/off, Left/Right volume, **M** mute, **F** fullscreen, Esc back, **Q** quit. Mouse wheel changes channel.
+Up/Down channel, 0-9 go to a channel, **Enter** or **G** guide, **H** favorite, **V** favorites only, **S** settings, Left/Right volume, **M** mute, **F** fullscreen, Esc asks whether to close the app (as does the window's X), **Q** quit. Mouse wheel changes channel.
 
 In the guide: arrows move, PgUp/PgDn jump five channels, **N** returns to now, Enter watches.
-
-## NDI
-
-Press **D** to send the whole app (picture and sound where the source allows) as one NDI source named `<your PC> (LTN TV)`. The picture is always the 1920x1080 fullscreen layout, whatever size the window is. Audio from YouTube's and Twitch's embedded players cannot be captured, so NDI carries their picture only.
-
-NDI® is a registered trademark of Vizrt NDI AB.
 
 ## Building
 
@@ -41,6 +35,6 @@ npm install
 npm run dist
 ```
 
-This writes `LTN-TV-Setup-<version>.exe` and `LTN-TV-Portable-<version>.exe` to `src/dist/`. NDI needs a C++ toolchain on first install because `@stagetimerio/grandiose` compiles a native addon; if node-gyp complains about `distutils`, install a newer node-gyp (`npm i --no-save node-gyp@latest`) and set `npm_config_node_gyp` to its `bin/node-gyp.js`.
+This writes `LTN-TV-Setup-<version>.exe` and `LTN-TV-Portable-<version>.exe` to `src/dist/`.
 
 Logos are in `assets/`. The app is built from the BackWhenTV player; setting `ltnOnly: false` in `src/renderer/ltn.js` brings back the original BackWhenTV lineup.
