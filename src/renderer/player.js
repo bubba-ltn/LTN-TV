@@ -88,8 +88,7 @@ function nowLine(ch, nowSec) {
     return p ? { t: p.cur[2] + (p.cur[3] ? " - " + p.cur[3] : ""), n: p.next ? p.next[2] : "" } : { t: ch.blurb || "Live", n: "" };
   }
   if (ch.kind === "weather") return { t: "Local forecast", n: "" };
-  if (ch.kind === "ltn") return { t: "The newest from Love Thy Nerd", n: "" };
-  if (ch.kind === "bible") return { t: bibleTitle(), n: "" };
+  if (ltnIsOwn(ch)) return ltnNow(ch);
   const slot = slotAt(ch, nowSec);
   return slot ? { t: slot.it.a ? "COMMERCIAL BREAK" : slot.it.t, n: nextOf(ch, slot).t } : { t: "LOADING GUIDE DATA...", n: "" };
 }
@@ -101,6 +100,7 @@ async function boot() {
   schedules = all.schedules;
   channels = lu.channels.filter((c) => c.kind !== "board" && (c.kind === "pluto" || c.kind === "weather" || schedules[c.id])).sort((a, b) => a.num - b.num);
   injectLtnChannels(); // our own Love Thy Nerd channels (ltn.js)
+  ltnStart();
   jget("/api/epg").then((e) => { epg = e.programs || {}; if (mode === "guide") renderGuide(); }).catch(() => {});
   loadClips();
   const last = localStorage.getItem("bw-last");
@@ -151,11 +151,12 @@ function tune(idx, showBanner = true) {
   localStorage.setItem("bw-last", ch.id);
   stopAll();
   showMsg("");
-  usage.switchTo(ch.kind === "ltn" || ch.kind === "bible" ? null : ch.id); // our own channels are not part of the lineup stats
+  usage.switchTo(ltnIsOwn(ch) ? null : ch.id); // our own channels are not part of the lineup stats
   if (ch.kind === "pluto") playPluto(ch, gen, false);
   else if (ch.kind === "weather") playWeather(ch, gen);
   else if (ch.kind === "ltn") playLtn(ch, gen);
-  else if (ch.kind === "bible") playBible(ch, gen);
+  else if (ch.kind === "yt") playYt(ch, gen);
+  else if (ch.kind === "twitch") playTwitch(ch, gen);
   else playSlot(ch, gen, 0);
   if (showBanner) banner();
   renderGuide();
@@ -451,8 +452,7 @@ function itemAt(cum, pos) { let lo = 0, hi = cum.length - 2; while (lo < hi) { c
 function programs(ch, from, to) {
   const filler = (a, b) => ({ s: a, e: b, t: ch.blurb || "Live programming", sub: "", filler: true });
   if (ch.kind === "weather") return [{ s: from, e: to, t: "WeatherStar Local Forecast", sub: "Radar, forecast and smooth jazz" }];
-  if (ch.kind === "ltn") return [{ s: from, e: to, t: "The newest from Love Thy Nerd", sub: "Twitch, the website and YouTube" }];
-  if (ch.kind === "bible") return [{ s: from, e: to, t: "LTN Daily Audio Bible", sub: "The playlist, played through in order" }];
+  if (ltnIsOwn(ch)) return ltnPrograms(ch, from, to);
   if (ch.kind === "pluto") {
     const out = []; let t = from;
     for (const p of epg[ch.pluto] || []) {
@@ -506,7 +506,7 @@ function renderGuide() {
   for (let pi = gTop; pi < Math.min(list.length, gTop + per); pi++) {
     const i = list[pi], ch = channels[i];
     const row = document.createElement("div"); row.className = "grow" + (i === tuned ? " cur" : "");
-    const box = document.createElement("div"); box.className = "gch" + (isFav(ch.id) ? " fav" : "");
+    const box = document.createElement("div"); box.className = "gch" + (isFav(ch.id) ? " fav" : "") + (isLive(ch) ? " onair" : "");
     box.innerHTML = "<b></b><span></span>"; box.firstChild.textContent = ch.num; box.lastChild.textContent = ch.name;
     box.onclick = () => { gCh = i; tune(i); setMode("tv"); };
     const track = document.createElement("div"); track.className = "gtrack";
@@ -515,7 +515,7 @@ function renderGuide() {
       if (b <= a) continue;
       const blk = document.createElement("div");
       const sel = i === gCh && gCur >= p.s && gCur < p.e;
-      blk.className = "blk" + (sel ? " sel" : "") + (p.s <= now && now < p.e ? " live" : "") + (p.s < gView ? " cont" : "");
+      blk.className = "blk" + (sel ? " sel" : "") + (p.s <= now && now < p.e ? " live" : "") + (p.s < gView ? " cont" : "") + (p.live ? " onair" : "");
       blk.style.left = ((a - gView) / SPAN * 100) + "%";
       blk.style.width = "calc(" + ((b - a) / SPAN * 100) + "% - .5vw)";
       const t = document.createElement("div"); t.className = "bt"; t.textContent = (p.s < gView ? "◂ " : "") + p.t;
@@ -532,6 +532,15 @@ function renderGuide() {
 }
 function guideInfo(ch, p, now) {
   if (!p) return;
+  if (ltnIsOwn(ch)) { // always-on channels have no schedule: say what is on, and whether it is live
+    $("#gtitle").textContent = p.t;
+    $("#gbar").style.display = "none";
+    $("#gleft").textContent = p.live ? "\u25CF LIVE NOW" : "ALWAYS ON";
+    $("#gmeta").textContent = [ch.num + "  " + ch.name, p.sub].filter(Boolean).join("  \u2022  ");
+    $("#gdesc").textContent = ch.blurb || "";
+    $("#gtags").textContent = (isFav(ch.id) ? "\u2605 FAVORITE" + (ch.cat ? "  \u2022  " : "") : "") + (ch.cat || "");
+    return;
+  }
   $("#gtitle").textContent = p.t;
   const live = now >= p.s && now < p.e;
   $("#gbar").style.display = live ? "block" : "none";
@@ -587,14 +596,14 @@ const preview = (() => {
     try { pv.pause(); } catch { /* ignore */ }
     pv.srcObject = null; pv.removeAttribute("src"); pv.load();
     msg.textContent = "";
+    ltnPreviewClear();
   };
   async function start(ch) {
     const my = ++gen; pv.muted = true;
     try {
-      if (NDI_MODE && channels[tuned] !== ch) { msg.textContent = ch.name; return; } // the NDI copy only mirrors the current channel, not a third stream
       if (ch.kind === "weather") { msg.textContent = "WEATHERSTAR\nLOCAL FORECAST"; return; }
       if (channels[tuned] === ch && v.captureStream && v.readyState >= 2 && !swapActive) { pv.srcObject = v.captureStream(); await pv.play(); if (my === gen) msg.textContent = ""; return; } // the channel already on: just mirror it
-      if (ch.kind === "ltn" || ch.kind === "bible") { msg.textContent = ch.name; return; }
+      if (ltnIsOwn(ch)) { ltnPreview(ch); return; }
       if (ch.kind === "pluto") {
         const url = await plutoUrl(ch.pluto, false);
         if (my !== gen) return;
@@ -651,7 +660,7 @@ let ndiOn = false, ndiCtx = null;
 function syncOut(force) {
   if (NDI_MODE || (!ndiOn && !force) || !window.bw || !window.bw.ndiState) return;
   const ch = channels[tuned], gc = channels[gCh];
-  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView, yt: ytSync() });
+  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView, yt: ytSync(), live: ltnLiveSnap() });
 }
 async function toggleNdi() {
   if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
@@ -682,6 +691,7 @@ function applySync(s) {
   if (!started) { if (ti >= 0) tuned = ti; begin(); }
   else if (ti >= 0 && ti !== tuned) tune(ti, true);
   if (s.mode !== mode) setMode(s.mode);
+  ltnApplyLive(s.live);
   ytFollow(s.yt);
   if (s.mode === "guide") {
     const gi = channels.findIndex((c) => c.id === s.gch);

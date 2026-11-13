@@ -23,7 +23,15 @@
   #guide.on { display: flex; }
   #ginfo { display: flex; justify-content: space-between; gap: 3vw; height: 34vh; flex: none; }
   #gtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .9vh; text-shadow: 2px 2px 4px rgba(0,0,0,.7); }
-  body.gmode #wx, body.gmode #ltn, body.gmode #yt { visibility: hidden; }
+  body.gmode #wx, body.gmode #ltn, body.gmode #yt, body.gmode #tw { visibility: hidden; }
+  #tw { display: none; background: #000; } #tw.on { display: block; }
+  #twp, #twp iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+  #gprevimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
+  #gprevmsg { white-space: pre-line; }
+  .gch.onair { background: #c01818; box-shadow: inset 0 0 0 2px #fff; }
+  .gch.onair b::after { content: " \25CF"; font-size: 2vh; }
+  .blk.onair { background: #b01818; color: #fff; box-shadow: inset 0 0 0 2px rgba(255,255,255,.7); }
+  .blk.onair.sel { background: #ffe3e3; color: #900; box-shadow: 0 0 0 3px var(--orange); }
   /* Love Thy Nerd channels */
   #ltn { display: none; flex-direction: column; padding: 4vh 5vw; font-weight: 700; text-shadow: 2px 2px 0 #000; background: linear-gradient(180deg, #14166b 0%, #070a3a 100%); }
   #ltn.on { display: flex; }
@@ -124,13 +132,14 @@
 <div class="layer" id="wx"><div id="wxhead"><span id="wxtitle">LOCAL FORECAST</span><span id="wxclock"></span></div><div id="wxbody"></div><div id="wxfoot"><span id="wxpage"></span><span>BACKWHENTV WEATHER</span></div></div>
 <div class="layer" id="ltn"><div id="ltnhead"><span id="ltntitle">LOVE THY NERD</span><span id="ltnclock"></span></div><div id="ltnbody"></div><div id="ltnfoot"><span id="ltnpage"></span><span>LOVETHYNERD.COM</span></div></div>
 <div class="layer" id="yt"><iframe id="ytf" allow="autoplay; encrypted-media"></iframe></div>
+<div class="layer" id="tw"><div id="twp"></div></div>
 <div class="layer" id="bars"><span>LOADING CHANNEL...</span></div>
 <div class="layer" id="msg"></div>
 <div class="layer" id="banner"><div id="bnum"></div><div><div id="bname"></div></div><div style="flex:1;min-width:0"><div id="btitle"></div><div id="bnext"></div></div><div id="bclock"></div></div>
 <div class="layer" id="guide">
   <div id="ginfo">
     <div id="gtext"><h1 id="gtitle"></h1><div id="gprog"><div id="gbar"><i></i></div><span id="gleft"></span></div><div id="gmeta"></div><div id="gdesc"></div><div id="gtags"></div></div>
-    <div id="gprev"><video id="pv" muted playsinline></video><div id="gprevmsg"></div></div>
+    <div id="gprev"><video id="pv" muted playsinline></video><img id="gprevimg" alt=""><div id="gprevmsg"></div></div>
   </div>
   <div id="gtimes"><span id="gclock"></span><div id="gticks"></div></div>
   <div id="grows"></div>
