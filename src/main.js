@@ -115,6 +115,8 @@ app.whenReady().then(() => {
     let host = "";
     try { host = new URL(d.url).hostname; } catch { /* ignore */ }
     if (PLUTO_HOST.test(host)) { d.requestHeaders["User-Agent"] = PLUTO_UA; delete d.requestHeaders["Origin"]; delete d.requestHeaders["Referer"]; }
+    // YouTube's embedded player refuses to start without a web referrer, and a file:// page has none
+    if (d.resourceType === "subFrame" && /(^|\.)youtube(-nocookie)?\.com$/i.test(host)) d.requestHeaders["Referer"] = "https://backwhen.stream/";
     cb({ requestHeaders: d.requestHeaders });
   });
   ses.webRequest.onHeadersReceived((d, cb) => {

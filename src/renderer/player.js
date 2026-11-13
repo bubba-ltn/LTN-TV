@@ -26,6 +26,7 @@ function applyS() {
   v.muted = muted || swapActive; v2.muted = muted;
   if (mode === "guide") renderGuide();
   if (settingsOpen) renderSettings();
+  ytAudio();
 }
 async function loadS() {
   try {
@@ -87,6 +88,8 @@ function nowLine(ch, nowSec) {
     return p ? { t: p.cur[2] + (p.cur[3] ? " - " + p.cur[3] : ""), n: p.next ? p.next[2] : "" } : { t: ch.blurb || "Live", n: "" };
   }
   if (ch.kind === "weather") return { t: "Local forecast", n: "" };
+  if (ch.kind === "ltn") return { t: "The newest from Love Thy Nerd", n: "" };
+  if (ch.kind === "bible") return { t: bibleTitle(), n: "" };
   const slot = slotAt(ch, nowSec);
   return slot ? { t: slot.it.a ? "COMMERCIAL BREAK" : slot.it.t, n: nextOf(ch, slot).t } : { t: "LOADING GUIDE DATA...", n: "" };
 }
@@ -97,6 +100,7 @@ async function boot() {
   anchor = all.anchor;
   schedules = all.schedules;
   channels = lu.channels.filter((c) => c.kind !== "board" && (c.kind === "pluto" || c.kind === "weather" || schedules[c.id])).sort((a, b) => a.num - b.num);
+  injectLtnChannels(); // our own Love Thy Nerd channels (ltn.js)
   jget("/api/epg").then((e) => { epg = e.programs || {}; if (mode === "guide") renderGuide(); }).catch(() => {});
   loadClips();
   const last = localStorage.getItem("bw-last");
@@ -134,6 +138,7 @@ function stopAll() {
   if (hls) { try { hls.destroy(); } catch { /* gone */ } hls = null; }
   clearInterval(wxTimer); wxTimer = null;
   $("#wx").classList.remove("on");
+  ltnStop();
   v.onloadedmetadata = v.onplaying = v.onended = v.onerror = null;
   v.removeAttribute("src"); v.load();
   slate.reset();
@@ -146,9 +151,11 @@ function tune(idx, showBanner = true) {
   localStorage.setItem("bw-last", ch.id);
   stopAll();
   showMsg("");
-  usage.switchTo(ch.id);
+  usage.switchTo(ch.kind === "ltn" || ch.kind === "bible" ? null : ch.id); // our own channels are not part of the lineup stats
   if (ch.kind === "pluto") playPluto(ch, gen, false);
   else if (ch.kind === "weather") playWeather(ch, gen);
+  else if (ch.kind === "ltn") playLtn(ch, gen);
+  else if (ch.kind === "bible") playBible(ch, gen);
   else playSlot(ch, gen, 0);
   if (showBanner) banner();
   renderGuide();
@@ -444,6 +451,8 @@ function itemAt(cum, pos) { let lo = 0, hi = cum.length - 2; while (lo < hi) { c
 function programs(ch, from, to) {
   const filler = (a, b) => ({ s: a, e: b, t: ch.blurb || "Live programming", sub: "", filler: true });
   if (ch.kind === "weather") return [{ s: from, e: to, t: "WeatherStar Local Forecast", sub: "Radar, forecast and smooth jazz" }];
+  if (ch.kind === "ltn") return [{ s: from, e: to, t: "The newest from Love Thy Nerd", sub: "Twitch, the website and YouTube" }];
+  if (ch.kind === "bible") return [{ s: from, e: to, t: "LTN Daily Audio Bible", sub: "The playlist, played through in order" }];
   if (ch.kind === "pluto") {
     const out = []; let t = from;
     for (const p of epg[ch.pluto] || []) {
@@ -585,6 +594,7 @@ const preview = (() => {
       if (NDI_MODE && channels[tuned] !== ch) { msg.textContent = ch.name; return; } // the NDI copy only mirrors the current channel, not a third stream
       if (ch.kind === "weather") { msg.textContent = "WEATHERSTAR\nLOCAL FORECAST"; return; }
       if (channels[tuned] === ch && v.captureStream && v.readyState >= 2 && !swapActive) { pv.srcObject = v.captureStream(); await pv.play(); if (my === gen) msg.textContent = ""; return; } // the channel already on: just mirror it
+      if (ch.kind === "ltn" || ch.kind === "bible") { msg.textContent = ch.name; return; }
       if (ch.kind === "pluto") {
         const url = await plutoUrl(ch.pluto, false);
         if (my !== gen) return;
@@ -641,7 +651,7 @@ let ndiOn = false, ndiCtx = null;
 function syncOut(force) {
   if (NDI_MODE || (!ndiOn && !force) || !window.bw || !window.bw.ndiState) return;
   const ch = channels[tuned], gc = channels[gCh];
-  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView });
+  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView, yt: ytSync() });
 }
 async function toggleNdi() {
   if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
@@ -672,6 +682,7 @@ function applySync(s) {
   if (!started) { if (ti >= 0) tuned = ti; begin(); }
   else if (ti >= 0 && ti !== tuned) tune(ti, true);
   if (s.mode !== mode) setMode(s.mode);
+  ytFollow(s.yt);
   if (s.mode === "guide") {
     const gi = channels.findIndex((c) => c.id === s.gch);
     if (gi >= 0) gCh = gi;
@@ -816,6 +827,7 @@ document.addEventListener("dblclick", toggleFs);
 let idleT;
 addEventListener("mousemove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 2500); });
 setInterval(() => { if (mode === "guide") renderGuide(); }, 15000);
+setInterval(() => { if (!NDI_MODE && ndiOn) syncOut(); }, 5000); // keeps the NDI copy of the playlist in step
 addEventListener("resize", () => mode === "guide" && renderGuide());
 // test hook: press T on a Pluto channel to force a bumper swap as if a 25 s placeholder were looping
 addEventListener("keydown", (e) => { if (e.shiftKey && (e.key === "T") && started && hls) startSwap(25); });

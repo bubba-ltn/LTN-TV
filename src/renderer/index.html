@@ -23,7 +23,37 @@
   #guide.on { display: flex; }
   #ginfo { display: flex; justify-content: space-between; gap: 3vw; height: 34vh; flex: none; }
   #gtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .9vh; text-shadow: 2px 2px 4px rgba(0,0,0,.7); }
-  body.gmode #wx { visibility: hidden; }
+  body.gmode #wx, body.gmode #ltn, body.gmode #yt { visibility: hidden; }
+  /* Love Thy Nerd channels */
+  #ltn { display: none; flex-direction: column; padding: 4vh 5vw; font-weight: 700; text-shadow: 2px 2px 0 #000; background: linear-gradient(180deg, #14166b 0%, #070a3a 100%); }
+  #ltn.on { display: flex; }
+  #ltnhead { display: flex; justify-content: space-between; font-size: 4vh; color: var(--yellow); border-bottom: 4px solid var(--orange); padding-bottom: 1vh; }
+  #ltnbody { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 1.6vh; overflow: hidden; }
+  #ltnfoot { display: flex; justify-content: space-between; font-size: 2.6vh; color: var(--orange); }
+  .lmsg { font-size: 4.2vh; text-align: center; }
+  .ltw { display: flex; gap: 3vw; align-items: center; }
+  .ltwimg { flex: 0 0 46vw; aspect-ratio: 16 / 9; background: #000; border: 4px solid var(--orange); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .ltwimg img { width: 100%; height: 100%; object-fit: cover; }
+  .loff { font-size: 8vh; color: #888; }
+  .ltwtxt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1.6vh; }
+  .lstat { font-size: 3.4vh; color: #cfd6ee; } .lstat.live { color: #ff4b4b; }
+  .ltitle { font-size: 4.6vh; color: var(--yellow); line-height: 1.15; }
+  .lsub { font-size: 3vh; color: #dbe4ff; font-weight: 400; }
+  .lpost { display: flex; gap: 2vw; align-items: center; background: rgba(255,255,255,.08); padding: 1.2vh 1.4vw; border-left: 6px solid var(--orange); }
+  .lpost img { flex: 0 0 16vw; aspect-ratio: 16 / 9; object-fit: cover; border: 3px solid var(--orange); }
+  .lptxt { min-width: 0; flex: 1; }
+  .lpt { font-size: 3.4vh; color: var(--yellow); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .lps { font-size: 2.2vh; color: var(--orange); }
+  .lpx { font-size: 2.5vh; font-weight: 400; color: #dbe4ff; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .lgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2vh 1.6vw; }
+  .lc img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #000; border: 3px solid var(--orange); display: block; }
+  .lct { font-size: 2.5vh; color: #fff; line-height: 1.15; margin-top: .6vh; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .lcs { font-size: 2vh; color: var(--orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lrow { display: grid; grid-template-columns: 24vw 1fr 14vw; gap: 1.6vw; font-size: 2.8vh; background: rgba(255,255,255,.08); padding: 1.1vh 1.2vw; border-left: 6px solid var(--orange); }
+  .lrs { color: var(--yellow); } .lra { text-align: right; color: var(--orange); }
+  .lrs, .lrt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #yt { display: none; background: #000; } #yt.on { display: block; }
+  #ytf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
   #gtitle { margin: 0; font-size: 5.6vh; font-weight: 900; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #gprog { display: flex; align-items: center; gap: 1.2vw; font-size: 2.2vh; font-weight: 700; color: #ff5a3c; min-height: 2.6vh; }
   #gbar { width: 14vw; height: .7vh; background: rgba(255,255,255,.35); border-radius: 1vh; overflow: hidden; }
@@ -92,6 +122,8 @@
 <video id="v" playsinline></video>
 <video id="v2" playsinline></video>
 <div class="layer" id="wx"><div id="wxhead"><span id="wxtitle">LOCAL FORECAST</span><span id="wxclock"></span></div><div id="wxbody"></div><div id="wxfoot"><span id="wxpage"></span><span>BACKWHENTV WEATHER</span></div></div>
+<div class="layer" id="ltn"><div id="ltnhead"><span id="ltntitle">LOVE THY NERD</span><span id="ltnclock"></span></div><div id="ltnbody"></div><div id="ltnfoot"><span id="ltnpage"></span><span>LOVETHYNERD.COM</span></div></div>
+<div class="layer" id="yt"><iframe id="ytf" allow="autoplay; encrypted-media"></iframe></div>
 <div class="layer" id="bars"><span>LOADING CHANNEL...</span></div>
 <div class="layer" id="msg"></div>
 <div class="layer" id="banner"><div id="bnum"></div><div><div id="bname"></div></div><div style="flex:1;min-width:0"><div id="btitle"></div><div id="bnext"></div></div><div id="bclock"></div></div>
@@ -109,6 +141,7 @@
 <div class="layer" id="start"><h1>BackWhenTV</h1><p>Cable TV, the way you remember it.</p><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; S = settings &middot; Esc = back</p></div>
 
 <script src="../node_modules/hls.js/dist/hls.min.js"></script>
+<script src="ltn.js"></script>
 <script src="player.js"></script>
 </body>
 </html>
