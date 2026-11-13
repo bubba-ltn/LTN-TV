@@ -342,11 +342,13 @@ async function ltnGetSchedule(ch) {
   ltnListLoading[id] = (async () => {
     try {
       let items = null;
-      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
+      // a saved copy is only trusted if it was saved for exactly this channel and playlist, and it is checked again like a fresh list
+      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.id === id && c.list === ch.yt.list && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
+      if (items) { try { await ltnVerifyList(ch, items); } catch { items = null; try { localStorage.removeItem("ltn-list-" + id); } catch { /* ignore */ } } } // a bad saved copy is thrown away
       if (!items) {
         items = await ltnFetchList(ch.yt.list);
         await ltnVerifyList(ch, items); // never schedule another channel's videos
-        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, items })); } catch { /* storage full or blocked */ }
+        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, id, list: ch.yt.list, items })); } catch { /* storage full or blocked */ }
       }
       const sched = ltnBuildSchedule(items.filter((x) => !ytBad.has(x.id)), id);
       ltnLists[id] = { epoch: ep, sched };
