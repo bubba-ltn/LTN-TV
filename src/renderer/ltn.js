@@ -17,16 +17,17 @@ const LTN = {
   music: "IBC3x9Zyo-Q", // background music on LTN LATEST: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
   pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
-  // one channel each; @LoveThyNerd and @LTNPlaysGames are the same YouTube channel, so they share one
+  // one channel each, in channel-number order (IDs from each channel page's canonical link)
   shows: [
-    { id: "UC8eB_7RaI0sKhVbo8abjhEw", name: "LOVE THY NERD", info: "@LoveThyNerd and @LTNPlaysGames" },
-    { id: "UCq4sMTRd7Unwidjl1PVP2qA", name: "NCMU PODCAST", info: "Nerd Culture Ministry Underground, @NCMUpodcastLTN" },
+    { id: "UC8eB_7RaI0sKhVbo8abjhEw", name: "LTN PLAYS GAMES", info: "LTN Plays Games, @LTNPlaysGames" },
+    { id: "UCybQk4iV2Ax6cMLWsIO-sUw", name: "LOVE THY NERD", info: "@LoveThyNerd" },
+    { id: "UCIdJqzOfkA4IUHC8RMM7SnA", name: "NCMU PODCAST", info: "Nerd Culture Ministry Underground, @NCMUpodcastLTN" },
     { id: "UC5FybvYjKGsMN_7f8M0YUMQ", name: "NERD HISTORY", info: "@NerdHistoryLTN" },
     { id: "UCXX-ABXIGaUW3_NmY7LOQGg", name: "RPG RUNDOWN", info: "The RPG Rundown, @TheRPGRundownLTN" },
-    { id: "UCybQk4iV2Ax6cMLWsIO-sUw", name: "THE PULL LIST", info: "@ThePullListLTN" },
+    { id: "UC6yLOcIFpviSxE9c6d2Xpqg", name: "THE PULL LIST", info: "@ThePullListLTN" },
     { id: "UCiGN0i7cRwTLLv51DDMaM2w", name: "SAVE & CONTINUE", info: "Save & Continue Podcast, @SaveAndContinueLTN" },
-    { id: "UCcfPQJO0t5WfwMW08BVjhjg", name: "CHRISTIAN BOARD GAMERS", info: "@ChristianBoardGamersLTN" },
-    { id: "UCUJCjVIfE5p2rrPgfNq_0XQ", name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
+    { id: "UCJ17-LAbqJhlWKr0yw2Jbzg", name: "CHRISTIAN BOARD GAMERS", info: "The Christian Board Gamers Podcast, @ChristianBoardGamersLTN" },
+    { id: "UCjJEmqOToVh-jYDJePEBcvQ", name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
     { id: "UCda5tLEdzlfm3FtLi4rLQyA", name: "SATELLITE STORIES", info: "@SatelliteStoriesLTN" },
     { id: "UCTDE0NRt9QqeUByTE6WM0kQ", name: "TWO WORDS", info: "Two Words Podcast, @TwoWordsLTN" },
     { id: "UCT67V7nvgWuygXAORpiU7iA", name: "CHURCH NERDS", info: "@ChurchNerdsLTN" },
@@ -43,7 +44,7 @@ function injectLtnChannels() {
   let n = LTN.numShows;
   for (const s of LTN.shows) {
     n = free(n);
-    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UU" + s.id.slice(2), wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube. Always on, and the live stream whenever the show is live." });
+    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on, and the live stream whenever the show is live." });
   }
   channels.sort((a, b) => a.num - b.num);
 }
@@ -89,11 +90,9 @@ async function ltnXml(url) {
 async function ltnYoutube() {
   const out = [], shows = [];
   await Promise.allSettled(LTN.shows.map(async (s) => {
-    const doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?channel_id=" + s.id);
-    const show = ltnTag(doc.documentElement, "title");
+    const doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?playlist_id=UULF" + s.id.slice(2));
+    const show = ltnTag(doc.getElementsByTagName("author")[0] || doc.documentElement, "name") || s.name;
     let vids = [...doc.getElementsByTagName("entry")].slice(0, 5).map((e) => ({ id: ltnTag(e, "yt:videoId"), t: ltnTag(e, "title"), at: Date.parse(ltnTag(e, "published")) || 0, show, cid: s.id }));
-    const keep = await Promise.all(vids.map((v) => ytIsShort(v.id).then((x) => !x)));
-    vids = vids.filter((v, i) => keep[i]);
     out.push(...vids);
     if (vids[0]) shows.push(vids[0]);
   }));
