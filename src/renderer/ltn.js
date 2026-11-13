@@ -81,8 +81,10 @@ const LTN = {
   playsId: "UC8eB_7RaI0sKhVbo8abjhEw", // the LTN Plays channel (@LTNPlaysGames / @LoveThyNerd): LTN TWITCH shows what it is playing while we are not live
   // The stream schedule, weekly, in this time zone. day: 0 = Sunday ... 6 = Saturday. Twitch only gives its schedule to apps with a key, so it is kept here.
   schedule: { tz: "America/Chicago", slots: [
-    { day: 5, at: "11:00", mins: 240, title: "Lunch Time Stream with Matt" },
-    { day: 1, at: "11:00", mins: 60, title: "Lunch Time Stream with Matt" },
+    // from twitch.tv/lovethynerd/schedule (weekly, Central time)
+    { day: 2, at: "11:00", mins: 240, title: "Lunch Time Stream + Bubba Plays Games Casually" },
+    { day: 3, at: "11:00", mins: 60, title: "Lunch Time Stream + Radio Matt Plays Games Badly" },
+    { day: 4, at: "11:00", mins: 240, title: "Lunch Time Stream + Bubba Plays Games Casually" },
   ] },
   music: "IBC3x9Zyo-Q", // background music on LTN NEWS: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
