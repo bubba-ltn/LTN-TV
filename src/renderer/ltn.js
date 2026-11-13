@@ -325,6 +325,15 @@ function schedAt(sch, nowSec) { // what is on at this moment: {it, offset, index
   const it = sch.order[lo];
   return { it, offset: pos - it.start, index: lo, next: sch.order[(lo + 1) % sch.order.length] };
 }
+async function ltnVerifyList(ch, items) {
+  let doc;
+  try { doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?playlist_id=" + ch.yt.list); } catch { return; } // cannot check right now: accept
+  const entries = [...doc.getElementsByTagName("entry")];
+  if (!entries.length) return;
+  if (entries.some((e) => { const c = ltnTag(e, "yt:channelId"); return c && c !== ch.ytid; })) throw new Error("this list belongs to another channel");
+  const ids = new Set(items.map((x) => x.id));
+  if (!entries.some((e) => ids.has(ltnTag(e, "yt:videoId")))) throw new Error("this list does not match the channel's own feed");
+}
 async function ltnGetSchedule(ch) {
   const ep = Math.floor(Date.now() / 1000 / SCHED_EPOCH), id = ch.ytid;
   const have = ltnLists[id];
@@ -336,6 +345,7 @@ async function ltnGetSchedule(ch) {
       try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
       if (!items) {
         items = await ltnFetchList(ch.yt.list);
+        await ltnVerifyList(ch, items); // never schedule another channel's videos
         try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, items })); } catch { /* storage full or blocked */ }
       }
       const sched = ltnBuildSchedule(items.filter((x) => !ytBad.has(x.id)), id);
