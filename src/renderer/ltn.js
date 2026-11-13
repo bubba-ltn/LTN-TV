@@ -340,7 +340,7 @@ function ltnTzOffset(ts, tz) { // minutes east of UTC at that moment
   const p = Object.fromEntries(f.formatToParts(new Date(ts)).map((x) => [x.type, +x.value]));
   return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ts / 1000) * 1000) / 60000;
 }
-function ltnNextStream(now = Date.now()) { // the stream on now (if any) or the next one: {start, end, title}
+function ltnNextStream(now = Date.now()) { // the next stream that has not started yet: {start, end, title}
   const { tz, slots } = LTN.schedule;
   const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "numeric", day: "numeric" });
   const p = Object.fromEntries(f.formatToParts(new Date(now)).map((x) => [x.type, +x.value]));
@@ -355,7 +355,7 @@ function ltnNextStream(now = Date.now()) { // the stream on now (if any) or the 
       let start = wall - ltnTzOffset(wall, tz) * 60000;
       start = wall - ltnTzOffset(start, tz) * 60000; // once more, in case the clocks change that day
       const end = start + s.mins * 60000;
-      if (end > now && (!best || start < best.start)) best = { start, end, title: s.title };
+      if (start > now && (!best || start < best.start)) best = { start, end, title: s.title }; // only streams that have not started yet
     }
   }
   return best;
@@ -368,7 +368,7 @@ function ltnNextText() {
   const time = fmt(n.start, { hour: "numeric", minute: "2-digit" });
   const sd = new Date(n.start).toDateString();
   const when = sd === new Date(now).toDateString() ? "TODAY" : sd === new Date(now + 864e5).toDateString() ? "TOMORROW" : fmt(n.start, { weekday: "long" }).toUpperCase();
-  return ((n.start <= now ? "SCHEDULED NOW: " : "NEXT LIVE STREAM: ") + when + " " + time + " " + zone + (n.title ? "  •  " + n.title : "")).toUpperCase();
+  return ("NEXT STREAM: " + when + " " + time + " " + zone + (n.title ? "  •  " + n.title : "")).toUpperCase();
 }
 function ltnNextShow(on) { // the note in the top-left corner
   clearInterval(ltnNextTimer); ltnNextTimer = null;
