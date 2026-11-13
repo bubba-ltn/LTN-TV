@@ -10,7 +10,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { spotifyLinks: "", twitchTrailer: "", volume: 0.8, muteWindow: false, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { spotifyLinks: "", twitchTrailer: "", volume: 0.8, muteWindow: false, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 1, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -108,7 +108,10 @@ async function boot() {
   let ti = S.startChannel ? channels.findIndex((c) => c.num === S.startChannel) : -1;
   if (ti < 0) ti = channels.findIndex((c) => c.id === last);
   tuned = Math.max(0, ti);
-  $("#start .go").textContent = "PRESS ANY KEY OR CLICK TO TUNE IN";
+  let left = 3; // hold the splash for three seconds, then tune in by itself (a key or click skips the wait)
+  const goEl = $("#start .go");
+  goEl.textContent = "TUNING IN...";
+  const cd = setInterval(() => { if (started) return clearInterval(cd); if (--left <= 0) { clearInterval(cd); begin(); } }, 1000);
   renderGuide();
 }
 
