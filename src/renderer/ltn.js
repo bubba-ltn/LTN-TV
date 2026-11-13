@@ -42,7 +42,7 @@ function injectLtnChannels() {
   add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN NEWS", kind: "ltn", blurb: "LTN News: who is live, plus the newest from Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
   add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN PLAYS GAMES", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, and the LTN Plays Games channel on shuffle when we are not." });
   add({ id: "ltn-bible", num: free(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
-  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
     add(mk(s, free(s.num)));
@@ -194,13 +194,36 @@ function ltnNow(ch) {
     const lst = ch.ytid && ch.yt.sched && ltnLists[ch.ytid];
     if (lst && lst.sched && lst.sched.order.length) { const a = schedAt(lst.sched, Date.now() / 1000); return { t: a.it.title || ch.name, n: "Up next: " + (a.next.title || "") }; }
     const cur = channels[tuned] === ch ? ytNowTitle() : "";
-    return { t: cur || (ch.ytid ? ch.name + " on YouTube" : "LTN Daily Audio Bible"), n: ch.ytid ? "Always on" : "Played through in order" };
+    return { t: cur || (ch.ytid ? ch.name : "LTN Daily Audio Bible"), n: ch.ytid ? "Always on" : "Played through in order" };
   }
   return { t: "LTN News", n: "" };
 }
+const ltnAsked = new Set();
+function ltnEnsure(c) { // load a channel's schedule for the guide (once; a failed load is retried after a minute)
+  if (!c || !c.ytid || ltnAsked.has(c.ytid)) return;
+  ltnAsked.add(c.ytid);
+  ltnGetSchedule(c).then((sch) => { if (!sch) setTimeout(() => ltnAsked.delete(c.ytid), 60000); else if (mode === "guide") renderGuide(); }).catch(() => setTimeout(() => ltnAsked.delete(c.ytid), 60000));
+}
 function ltnPrograms(ch, from, to) {
-  const l = ltnNow(ch);
-  return [{ s: from, e: to, t: l.t, sub: l.n, live: isLive(ch) }];
+  const l = ltnNow(ch), live = isLive(ch);
+  // what is on in the slots: the channel's own schedule, or for LTN PLAYS GAMES while not live, the LTN Plays Games schedule
+  const src = ch.kind === "twitch" && !live ? ltnMirror() : ch;
+  if (!live && src && src.kind === "yt" && src.yt && src.yt.sched && src.ytid) {
+    const lst = ltnLists[src.ytid];
+    if (lst && lst.sched && lst.sched.order.length) {
+      const sch = lst.sched, n = sch.order.length, out = [];
+      const a = schedAt(sch, from);
+      let start = from - a.offset, i = a.index;
+      for (let guard = 0; start < to && guard < 500; guard++, i++) {
+        const it = sch.order[i % n], nx = sch.order[(i + 1) % n];
+        out.push({ s: start, e: start + it.len, t: it.title || src.name, sub: "", sched: true, next: { t: nx.title || src.name, s: start + it.len, e: start + it.len + nx.len } });
+        start += it.len;
+      }
+      return out;
+    }
+    ltnEnsure(src); // not loaded yet: ask for it, and show the single block until it arrives
+  }
+  return [{ s: from, e: to, t: l.t, sub: l.n, live }];
 }
 function ltnPreviewClear() { const i = $("#gprevimg"); if (i) { i.style.display = "none"; i.removeAttribute("src"); } }
 function ltnPreview(ch) { // a picture for the guide's preview box

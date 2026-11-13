@@ -534,7 +534,7 @@ function renderGuide() {
 }
 function guideInfo(ch, p, now) {
   if (!p) return;
-  if (ltnIsOwn(ch)) { // always-on channels have no schedule: say what is on, and whether it is live
+  if (ltnIsOwn(ch) && !p.sched) { // channels without slots: say what is on, and whether it is live
     $("#gtitle").textContent = p.t;
     $("#gbar").style.display = "none";
     $("#gleft").textContent = p.live ? "\u25CF LIVE NOW" : "ALWAYS ON";
@@ -548,8 +548,8 @@ function guideInfo(ch, p, now) {
   $("#gbar").style.display = live ? "block" : "none";
   if (live) $("#gbar").firstChild.style.width = Math.min(100, Math.max(0, (now - p.s) / (p.e - p.s) * 100)) + "%";
   $("#gleft").textContent = live ? minsText(p.e - now) + " left" : "Starts in " + minsText(p.s - now);
-  $("#gmeta").textContent = [ch.num + "  " + ch.name, clockL(p.s) + " - " + clockL(p.e), minsText(p.e - p.s), p.sub && !p.filler ? p.sub : ""].filter(Boolean).join("  •  ");
-  $("#gdesc").textContent = p.filler ? "" : (ch.blurb || "");
+  $("#gmeta").textContent = [ch.num + "  " + ch.name, clockL(p.s) + " - " + clockL(p.e), minsText(p.e - p.s), p.sub && !p.filler && !p.sched ? p.sub : ""].filter(Boolean).join("  •  ");
+  $("#gdesc").textContent = p.next ? "UP NEXT: " + p.next.t + "  \u2022  " + clockL(p.next.s) + " - " + clockL(p.next.e) : (p.filler ? "" : (ch.blurb || ""));
   $("#gtags").textContent = (isFav(ch.id) ? "\u2605 FAVORITE" + (ch.cat ? "  \u2022  " : "") : "") + (ch.cat || "");
 }
 function gFit() {
