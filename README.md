@@ -38,3 +38,7 @@ npm run dist
 This writes `LTN-TV-Setup-<version>.exe` and `LTN-TV-Portable-<version>.exe` to `src/dist/`.
 
 Logos are in `assets/`. The app is built from the BackWhenTV player; setting `ltnOnly: false` in `src/renderer/ltn.js` brings back the original BackWhenTV lineup.
+
+## Updates
+
+LTN TV checks GitHub for a newer release a few seconds after it starts and every 6 hours. When there is one it asks; Enter / Y downloads the installer and runs it, Esc / N waits. Press U (or use the tray menu) to check now. The portable build opens the release page instead.

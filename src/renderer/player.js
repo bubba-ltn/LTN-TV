@@ -745,6 +745,39 @@ if (window.bw && window.bw.onAskQuit) window.bw.onAskQuit(() => askQuit());
 $("#qyes").onclick = doQuit;
 $("#qno").onclick = closeQuit;
 
+/* ---------- updates: the app finds a newer release and asks; Enter / Y downloads and installs it ---------- */
+let updOpen = false, updGoing = false;
+function updShow(title, sub, yes, no) {
+  updOpen = true; updGoing = false;
+  $("#utitle").textContent = title; $("#usub").textContent = sub;
+  $("#uyes").style.display = yes ? "" : "none"; if (yes) $("#uyes").textContent = yes;
+  $("#uno").textContent = no || "LATER"; $("#ubar").style.display = "none";
+  $("#uhelp").style.display = yes ? "" : "none";
+  $("#upd").classList.add("on");
+}
+function updClose() { updOpen = false; $("#upd").classList.remove("on"); }
+function updGo() {
+  if (updGoing) return;
+  if (updPortable) { window.bw.updateGo(); updClose(); return; }
+  updGoing = true;
+  $("#utitle").textContent = "DOWNLOADING UPDATE"; $("#usub").textContent = "LTN TV will close and the installer will start."; $("#ubar").style.display = "block"; $("#ubar i").style.width = "0";
+  $("#uyes").style.display = "none"; $("#uno").style.display = "none"; $("#uhelp").style.display = "none";
+  window.bw.updateGo();
+}
+let updPortable = false;
+if (window.bw && window.bw.onUpdate) {
+  window.bw.onUpdate("update-available", (d) => {
+    updPortable = !!d.portable;
+    $("#uno").style.display = "";
+    updShow("UPDATE AVAILABLE", "LTN TV " + d.version + " is ready (you have " + window.bw.version + ")." + (d.notes ? "\n\n" + d.notes.split("\n").slice(0, 6).join("\n") : ""), d.portable ? "OPEN DOWNLOAD PAGE" : "DOWNLOAD & UPDATE", "LATER");
+  });
+  window.bw.onUpdate("update-progress", (p) => { $("#ubar i").style.width = p + "%"; });
+  window.bw.onUpdate("update-failed", (m) => { $("#uno").style.display = ""; updShow("UPDATE FAILED", m + "\nTry again later, or download it from the releases page.", "", "OK"); });
+  window.bw.onUpdate("update-none", (m) => { $("#uno").style.display = ""; updShow(m ? "COULD NOT CHECK" : "YOU'RE UP TO DATE", m ? m : "LTN TV " + window.bw.version + " is the newest version.", "", "OK"); });
+}
+$("#uyes").onclick = updGo;
+$("#uno").onclick = updClose;
+
 /* ---------- input ---------- */
 const toggleFs = () => (window.bw ? window.bw.fullscreen() : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
 function begin() {
@@ -754,6 +787,12 @@ function begin() {
   tune(tuned, true);
 }
 addEventListener("keydown", (e) => {
+  if (updOpen) { // the update question is up
+    const k = e.key;
+    if (!updGoing) { if ($("#uyes").style.display !== "none" && (k === "Enter" || k === "y" || k === "Y")) updGo(); else if (k === "Escape" || k === "n" || k === "N" || k === "Backspace" || k === "Enter") updClose(); }
+    e.preventDefault();
+    return;
+  }
   if (quitOpen) { // the close question is up: Enter or Y closes, Esc or N keeps watching
     const k = e.key;
     if (k === "Enter" || k === "y" || k === "Y") doQuit();
@@ -771,6 +810,7 @@ addEventListener("keydown", (e) => {
   else if (k === "PageUp") g ? gMoveCh(-5, false) : surf(1);
   else if (k === "PageDown") g ? gMoveCh(5, false) : surf(-1);
   else if (k === "s" || k === "S") openSettings();
+  else if (k === "u" || k === "U") { if (window.bw && window.bw.updateCheck) window.bw.updateCheck(); }
   else if (k === "h" || k === "H") toggleFav(g ? channels[gCh] && channels[gCh].id : channels[tuned] && channels[tuned].id);
   else if (k === "v" || k === "V") { setS({ favOnly: !S.favOnly }); flash(S.favOnly ? "FAVORITES ONLY" : "ALL CHANNELS"); }
   else if (k === "ArrowLeft") g ? gMoveTime(-1) : setVol(-0.05);
