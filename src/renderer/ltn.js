@@ -8,6 +8,7 @@ const LTN = {
   numLatest: 158, numTwitch: 159, numBible: 160, numShows: 161, // moved up automatically if the lineup already uses them
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
+  music: "IBC3x9Zyo-Q", // background music on LTN LATEST: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
   twitchTrailer: "", // YouTube video id of the trailer to play while Twitch is offline; empty = Twitch's own offline screen
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
   pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
@@ -31,7 +32,7 @@ const LTN = {
 function injectLtnChannels() {
   const free = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
   const add = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
-  add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN LATEST", kind: "ltn", blurb: "Who is live, and the newest from Love Thy Nerd: Twitch, the website and every YouTube show." });
+  add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN LATEST", kind: "ltn", blurb: "Who is live, and the newest from Love Thy Nerd: Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
   add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN TWITCH", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, the trailer when we are not." });
   add({ id: "ltn-bible", num: free(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
   let n = LTN.numShows;
@@ -225,6 +226,11 @@ async function playLtn(ch, gen) {
   loadingOn(false);
   $("#ltn").classList.add("on");
   ltnPage = 0; ltnDraw();
+  if (!NDI_MODE && LTN.music) { // the music: always playing, sound only
+    const m = $("#ytm");
+    m.onload = () => { setTimeout(ytAudio, 800); setTimeout(ytAudio, 2500); setTimeout(ytAudio, 6000); };
+    m.src = ytEmbed(LTN.music + "?playlist=" + LTN.music);
+  }
   const reload = async (force) => { try { await ltnLoad(force); } catch { /* keep what we have */ } if (gen === tuneGen) ltnDraw(); };
   await reload(false);
   if (gen !== tuneGen) return;
@@ -239,8 +245,13 @@ function ytCmd(func, args) {
   const f = $("#ytf");
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
 }
+function ytmCmd(func, args) {
+  const f = $("#ytm");
+  if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
+}
 function ytAudio() { // follow the window's volume and mute (the hidden NDI copy is always silent here: YouTube's player cannot be captured for NDI audio)
   const quiet = NDI_MODE || S.muteWindow, vol = Math.min(1, Math.max(0, S.volume));
+  ytmCmd(quiet ? "mute" : "unMute"); ytmCmd("setVolume", [Math.round(vol * 100)]);
   if (/youtube/.test(($("#ytf").getAttribute("src")) || "")) { ytCmd(quiet ? "mute" : "unMute"); ytCmd("setVolume", [Math.round(vol * 100)]); }
   if (twPlayer) { try { twPlayer.setMuted(quiet); twPlayer.setVolume(vol); } catch { /* not ready yet */ } }
 }
@@ -321,7 +332,8 @@ function ltnStop() {
   clearInterval(ltnPageTimer); clearInterval(ltnRefreshTimer); clearInterval(ytListenTimer);
   ltnPageTimer = ltnRefreshTimer = ytListenTimer = null;
   twPlayer = null;
-  const l = $("#ltn"), y = $("#yt"), t = $("#tw");
+  const l = $("#ltn"), y = $("#yt"), t = $("#tw"), m = $("#ytm");
+  if (m && /youtube/.test(m.getAttribute("src") || "")) m.src = "about:blank";
   if (l) l.classList.remove("on");
   if (t) { t.classList.remove("on"); const p = $("#twp"); if (p) p.textContent = ""; }
   if (y) { y.classList.remove("on"); const f = $("#ytf"); if (f && /youtube/.test(f.getAttribute("src") || "")) f.src = "about:blank"; }
