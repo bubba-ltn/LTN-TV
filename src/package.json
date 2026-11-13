@@ -1,7 +1,7 @@
 {
   "name": "ltn-tv",
   "productName": "LTN TV",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "LTN TV: Love Thy Nerd, always on.",
   "main": "main.js",
   "author": "Love Thy Nerd",

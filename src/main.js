@@ -1,7 +1,7 @@
 // LTN TV for Windows: a window around the player page in renderer/, plus settings and a tray icon.
 // Keyboard and mouse only. The one job the shell does that a browser can't: Pluto's streams only answer app-like requests and send no CORS
 // headers, so for those hosts we send the same user agent the Android app uses and allow the player page to read the response.
-const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, dialog, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -143,6 +143,7 @@ function updateTray() {
     { type: "separator" },
     { label: "Mute window", type: "checkbox", checked: !!S.muteWindow, click: (m) => { S.muteWindow = m.checked; applySettings(); } },
     { type: "separator" },
+    { label: "Check for updates", click: () => { showWin(); checkUpdate(true); } },
     { label: "Quit", click: () => app.quit() },
   ]));
 }
@@ -173,6 +174,8 @@ app.whenReady().then(async () => {
   log("app url", appUrl || "file (server unavailable)");
   create();
   applySettings();
+  setTimeout(() => checkUpdate(false), 8000);
+  setInterval(() => checkUpdate(false), 6 * 3600 * 1000);
 });
 
 // Esc in the player and the window's X both ask before the app closes: the page shows the question; if it does not answer, Windows asks instead
@@ -189,6 +192,56 @@ function askQuit() {
     if (r === 0) { quitting = true; app.quit(); }
   }, 900);
 }
+/* ---------- updates: look for a newer GitHub release, ask, download the installer, run it ---------- */
+const REPO = "bubba-ltn/LTN-TV";
+let updInfo = null, updBusy = false, updAsked = "";
+const verNum = (v) => String(v).replace(/^v/i, "").split(".").map((x) => parseInt(x, 10) || 0);
+const verNewer = (a, b) => { const x = verNum(a), y = verNum(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+async function checkUpdate(manual) {
+  try {
+    const r = await net.fetch("https://api.github.com/repos/" + REPO + "/releases/latest", { headers: { Accept: "application/vnd.github+json", "User-Agent": "LTN-TV" } });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const portable = !!process.env.PORTABLE_EXECUTABLE_FILE;
+    const asset = (j.assets || []).find((a) => (portable ? /portable/i : /setup/i).test(a.name) && /\.exe$/i.test(a.name));
+    if (!j.tag_name || !verNewer(j.tag_name, app.getVersion())) { log("update: current", app.getVersion(), "latest", j.tag_name); if (manual && win) win.webContents.send("update-none"); return; }
+    updInfo = { version: String(j.tag_name).replace(/^v/i, ""), notes: String(j.body || "").slice(0, 600), url: j.html_url, asset: asset ? { name: asset.name, url: asset.browser_download_url, size: asset.size } : null, portable };
+    log("update available", updInfo.version);
+    if (manual || updAsked !== updInfo.version) { updAsked = updInfo.version; if (win && !win.isDestroyed()) win.webContents.send("update-available", { version: updInfo.version, notes: updInfo.notes, portable }); }
+  } catch (e) { log("update check failed", e.message); if (manual && win) win.webContents.send("update-none", String(e.message)); }
+}
+ipcMain.on("update-check", () => checkUpdate(true));
+ipcMain.on("update-go", async () => {
+  if (!updInfo || updBusy) return;
+  if (!updInfo.asset || updInfo.portable) { shell.openExternal(updInfo.url); return; } // the portable build cannot replace itself: open the release page instead
+  updBusy = true;
+  const send = (c, p) => { if (win && !win.isDestroyed()) win.webContents.send(c, p); };
+  try {
+    const file = path.join(app.getPath("temp"), updInfo.asset.name);
+    const r = await net.fetch(updInfo.asset.url, { headers: { "User-Agent": "LTN-TV" } });
+    if (!r.ok || !r.body) throw new Error("HTTP " + r.status);
+    const total = +r.headers.get("content-length") || updInfo.asset.size || 0;
+    const out = fs.createWriteStream(file);
+    let got = 0, last = 0;
+    const reader = r.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length;
+      if (!out.write(value)) await new Promise((ok) => out.once("drain", ok));
+      if (total && Date.now() - last > 250) { last = Date.now(); send("update-progress", Math.round((got / total) * 100)); }
+    }
+    await new Promise((ok, no) => { out.end(); out.on("finish", ok); out.on("error", no); });
+    if (total && got < total) throw new Error("download was cut short");
+    send("update-progress", 100);
+    log("update downloaded", file);
+    require("child_process").spawn(file, [], { detached: true, stdio: "ignore" }).unref();
+    quitting = true;
+    setTimeout(() => app.quit(), 600);
+  } catch (e) { log("update failed", e.message); send("update-failed", String(e.message)); }
+  updBusy = false;
+});
+
 app.on("before-quit", () => { quitting = true; });
 
 ipcMain.on("fullscreen", () => { if (win) win.setFullScreen(!win.isFullScreen()); });
