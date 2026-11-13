@@ -1,6 +1,7 @@
 // BackWhenTV for Windows: guide, Internet Archive channels (on the shared clock), live Pluto channels (hls.js), the weather channel,
 // and our own bumper clips covering Pluto's looping placeholder. Same rules as the Android app.
 const BASE = "https://backwhen.stream";
+const NDI_MODE = new URLSearchParams(location.search).has("ndi"); // the hidden 1920x1080 copy that feeds NDI
 const VERSION = "1.0";
 const $ = (s) => document.querySelector(s);
 const v = $("#v"), v2 = $("#v2");
@@ -103,6 +104,7 @@ function tune(idx, showBanner = true) {
   else playSlot(ch, gen, 0);
   if (showBanner) banner();
   renderGuide();
+  syncOut();
 }
 
 function playSlot(ch, gen, skip) {
@@ -352,6 +354,7 @@ const usage = (() => {
   let cur = null, since = 0;
   const flushCur = () => { if (cur && started) { const m = Math.round((Date.now() - since) / 60000); if (m > 0) { watched[cur] = (watched[cur] || 0) + m; since += m * 60000; } } };
   setInterval(() => {
+    if (NDI_MODE) return; // the hidden NDI copy is not a viewer
     flushCur();
     const body = JSON.stringify({ id, p: "windows", v: VERSION, w: watched });
     fetch(BASE + "/api/ev", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => { for (const k of Object.keys(watched)) delete watched[k]; }).catch(() => {});
@@ -471,7 +474,7 @@ function gFit() {
   else if (gCur >= gView + SPAN) gView = floorHalf(gCur) - SPAN + HALF;
   if (gView < floorHalf(now)) gView = floorHalf(now);
 }
-function gAfter() { gFit(); renderGuide(); preview.request(channels[gCh]); }
+function gAfter() { gFit(); renderGuide(); preview.request(channels[gCh]); syncOut(); }
 function gMoveCh(d, wrap = true) {
   const n = channels.length;
   gCh = wrap ? (gCh + d + n) % n : Math.min(n - 1, Math.max(0, gCh + d));
@@ -496,6 +499,7 @@ function setMode(m) {
     $("#banner").classList.remove("on");
     renderGuide(); preview.request(channels[gCh]);
   } else preview.stop();
+  syncOut();
 }
 
 /* live preview: the highlighted channel plays in the corner while you browse */
@@ -563,23 +567,16 @@ function setVol(dv) {
   flash("VOLUME " + Math.round(v.volume * 100));
 }
 function toggleMute() { muted = !muted; v.muted = muted || swapActive; v2.muted = muted; flash(muted ? "MUTE" : "VOLUME " + Math.round(v.volume * 100)); }
-v.volume = +(localStorage.getItem("bw-vol") ?? 0.8);
+v.volume = NDI_MODE ? 1 : +(localStorage.getItem("bw-vol") ?? 0.8);
 
-/* ---------- NDI output (desktop app): the window as video, the program audio as sound ---------- */
+/* ---------- NDI output ---------- */
+// The visible window only asks for NDI (D) and reports what it shows. The hidden 1920x1080 copy (?ndi=1) follows it, plays its own streams
+// and taps its own audio, so NDI is always the fullscreen picture no matter how the visible window is sized or whether it is minimized.
 let ndiOn = false, ndiCtx = null;
-async function ndiAudioStart() {
-  if (ndiCtx) { await ndiCtx.resume(); return false; }
-  v.crossOrigin = v2.crossOrigin = "anonymous"; // needed so the audio graph is allowed to read the media (takes effect on the next load)
-  ndiCtx = new AudioContext({ sampleRate: 48000 });
-  await ndiCtx.audioWorklet.addModule("ndi-worklet.js");
-  const mix = ndiCtx.createGain();
-  ndiCtx.createMediaElementSource(v).connect(mix);
-  ndiCtx.createMediaElementSource(v2).connect(mix);
-  mix.connect(ndiCtx.destination); // what you hear
-  const tap = new AudioWorkletNode(ndiCtx, "ndi-tap", { numberOfOutputs: 1, outputChannelCount: [2] });
-  tap.port.onmessage = (e) => { if (ndiOn) window.bw.ndiAudio(e.data, ndiCtx.sampleRate, 1024); };
-  mix.connect(tap); tap.connect(ndiCtx.destination); // the tap outputs silence; it only has to be in the graph to be pulled
-  return true;
+function syncOut(force) {
+  if (NDI_MODE || (!ndiOn && !force) || !window.bw || !window.bw.ndiState) return;
+  const ch = channels[tuned], gc = channels[gCh];
+  window.bw.ndiState({ started, ch: ch && ch.id, mode, gch: gc && gc.id, gCur, gView });
 }
 async function toggleNdi() {
   if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
@@ -588,10 +585,40 @@ async function toggleNdi() {
   try { r = await window.bw.ndiToggle(); } catch (e) { r = { on: false, error: String(e) }; }
   ndiOn = !!r.on;
   if (r.error) { console.error("NDI:", r.error); return flash("NDI UNAVAILABLE"); }
-  if (!ndiOn) return flash("NDI OFF");
-  flash("NDI ON: " + (r.name || "BackWhenTV"));
-  try { if (await ndiAudioStart() && started) tune(tuned, false); } catch (e) { console.error("NDI audio:", e); } // reload the channel once so its audio flows through the tap
+  flash(ndiOn ? "NDI ON: " + (r.name || "BackWhenTV") : "NDI OFF");
 }
+async function ndiAudioStart() {
+  v.crossOrigin = v2.crossOrigin = "anonymous"; // lets the audio graph read the media
+  ndiCtx = new AudioContext({ sampleRate: 48000 });
+  await ndiCtx.audioWorklet.addModule("ndi-worklet.js");
+  const mix = ndiCtx.createGain();
+  ndiCtx.createMediaElementSource(v).connect(mix);
+  ndiCtx.createMediaElementSource(v2).connect(mix);
+  const tap = new AudioWorkletNode(ndiCtx, "ndi-tap", { numberOfOutputs: 1, outputChannelCount: [2] });
+  tap.port.onmessage = (e) => window.bw.ndiAudio(e.data, ndiCtx.sampleRate, 1024);
+  mix.connect(tap); tap.connect(ndiCtx.destination); // the tap outputs silence; it only has to be in the graph to be pulled
+}
+function applySync(s) {
+  if (!channels.length || !s || !s.started) return;
+  const ti = channels.findIndex((c) => c.id === s.ch);
+  if (!started) { if (ti >= 0) tuned = ti; begin(); }
+  else if (ti >= 0 && ti !== tuned) tune(ti, true);
+  if (s.mode !== mode) setMode(s.mode);
+  if (s.mode === "guide") {
+    const gi = channels.findIndex((c) => c.id === s.gch);
+    if (gi >= 0) gCh = gi;
+    gCur = s.gCur; gView = s.gView;
+    renderGuide(); preview.request(channels[gCh]);
+  }
+}
+async function initNdiWindow() {
+  await bootP;
+  if (!window.bw) return;
+  await ndiAudioStart();
+  window.bw.onNdiSync(applySync);
+  window.bw.ndiReady();
+}
+if (!NDI_MODE && window.bw && window.bw.onNdiResend) window.bw.onNdiResend(() => syncOut(true));
 
 /* ---------- input ---------- */
 const toggleFs = () => (window.bw ? window.bw.fullscreen() : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
@@ -616,7 +643,7 @@ addEventListener("keydown", (e) => {
   else if (k === "Enter" || k === " ") { if (g) { tune(gCh); setMode("tv"); } else setMode("guide"); }
   else if (k === "g" || k === "G") setMode(g ? "tv" : "guide");
   else if (k === "i" || k === "I") banner();
-  else if (k === "d" || k === "D") toggleNdi();
+  else if ((k === "d" || k === "D") && !NDI_MODE) toggleNdi();
   else if (k === "m" || k === "M") toggleMute();
   else if (k === "+" || k === "=") setVol(0.05);
   else if (k === "-" || k === "_") setVol(-0.05);
@@ -635,4 +662,5 @@ setInterval(() => { if (mode === "guide") renderGuide(); }, 15000);
 addEventListener("resize", () => mode === "guide" && renderGuide());
 // test hook: press T on a Pluto channel to force a bumper swap as if a 25 s placeholder were looping
 addEventListener("keydown", (e) => { if (e.shiftKey && (e.key === "T") && started && hls) startSwap(25); });
-boot().catch(() => { $("#start .go").textContent = "COULD NOT REACH THE CABLE COMPANY - CHECK YOUR INTERNET"; });
+const bootP = boot().catch(() => { $("#start .go").textContent = "COULD NOT REACH THE CABLE COMPANY - CHECK YOUR INTERNET"; });
+if (NDI_MODE) initNdiWindow();
