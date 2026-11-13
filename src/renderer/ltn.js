@@ -253,8 +253,8 @@ async function playLtn(ch, gen) {
 }
 
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
-let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null;
-const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&enablejsapi=1";
+let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "";
+const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
 function ytCmd(func, args) {
   const f = $("#ytf");
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
@@ -271,7 +271,8 @@ function ytAudio(force) { // follow the window's volume and mute (the hidden NDI
   tell("ytf", /youtube/.test($("#ytf").getAttribute("src") || ""), ytCmd);
   tell("tw", !!twPlayer, (func, args) => { try { if (func === "setVolume") twPlayer.setVolume(args[0] / 100); else twPlayer.setMuted(func === "mute"); } catch { /* not ready yet */ } });
 }
-const ytAudioSoon = () => { ytSent = {}; for (const ms of [1200, 3500, 8000]) setTimeout(() => ytAudio(true), ms); }; // a freshly loaded player needs telling a few times until it is ready
+function ytNoCaptions() { for (const m of ["captions", "cc"]) { ytCmd("unloadModule", [m]); ytmCmd("unloadModule", [m]); } }
+const ytAudioSoon = () => { ytSent = {}; for (const ms of [1200, 3500, 8000]) setTimeout(() => { ytAudio(true); ytNoCaptions(); }, ms); }; // a freshly loaded player needs telling a few times until it is ready
 function ytShow(src, gen) {
   const f = $("#ytf");
   $("#yt").classList.add("on");
@@ -315,7 +316,11 @@ addEventListener("message", (e) => {
   try { if (typeof d === "string") d = JSON.parse(d); } catch { return; }
   if (d && (d.event === "infoDelivery" || d.event === "initialDelivery") && d.info) {
     Object.assign(ytInfo, d.info);
-    if (d.info.videoData) ytInfo.videoData = { ...(ytInfo.videoData || {}), ...d.info.videoData };
+    if (d.info.videoData) {
+      ytInfo.videoData = { ...(ytInfo.videoData || {}), ...d.info.videoData };
+      const vid = d.info.videoData.video_id;
+      if (vid && vid !== ytLastVid) { ytLastVid = vid; setTimeout(ytNoCaptions, 600); setTimeout(ytNoCaptions, 2500); }
+    }
     ytPosition();
   }
 });
