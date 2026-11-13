@@ -202,7 +202,13 @@ const ltnAsked = new Set();
 function ltnEnsure(c) { // load a channel's schedule for the guide (once; a failed load is retried after a minute)
   if (!c || !c.ytid || ltnAsked.has(c.ytid)) return;
   ltnAsked.add(c.ytid);
-  ltnGetSchedule(c).then((sch) => { if (!sch) setTimeout(() => ltnAsked.delete(c.ytid), 60000); else if (mode === "guide") renderGuide(); }).catch(() => setTimeout(() => ltnAsked.delete(c.ytid), 60000));
+  ltnGetSchedule(c).then((sch) => {
+    if (!sch) return setTimeout(() => ltnAsked.delete(c.ytid), 60000);
+    if (mode !== "guide") return;
+    renderGuide();
+    const sel = channels[gCh]; // the selected channel may be this one, or the Twitch channel showing it
+    if (sel && (sel === c || (sel.kind === "twitch" && ltnMirror() === c))) ltnPreview(sel);
+  }).catch(() => setTimeout(() => ltnAsked.delete(c.ytid), 60000));
 }
 function ltnPrograms(ch, from, to) {
   const l = ltnNow(ch), live = isLive(ch);
@@ -226,20 +232,39 @@ function ltnPrograms(ch, from, to) {
   return [{ s: from, e: to, t: l.t, sub: l.n, live }];
 }
 function ltnPreviewClear() { const i = $("#gprevimg"); if (i) { i.style.display = "none"; i.removeAttribute("src"); } }
-function ltnPreview(ch) { // a picture for the guide's preview box
-  if (ch.kind === "twitch" && !isLive(ch) && ltnMirror()) ch = ltnMirror(); // offline: it shows the LTN Plays channel
-  const img = $("#gprevimg"), msg = $("#gprevmsg");
-  let src = "";
-  if (ch.kind === "twitch" && isLive(ch)) src = "https://static-cdn.jtvnw.net/previews-ttv/live_user_" + LTN.twitch + "-640x360.jpg?t=" + Math.floor(Date.now() / 30000);
-  else if (ch.kind === "yt" && ch.ytid) {
+// The video on this channel right now: {id, live} for a video, {tw: true} for the Twitch stream, or null when not known yet.
+function ltnNowVideo(ch) {
+  if (ch.kind === "twitch") { if (isLive(ch)) return { tw: true }; ch = ltnMirror(); if (!ch) return null; } // not live: it is showing the LTN Plays Games channel
+  if (ch.kind !== "yt") return null;
+  if (ch.ytid) {
     const lv = ltnLiveMap[ch.ytid];
-    const v = ltnData && ltnData.yt && ltnData.yt.videos.find((x) => x.cid === ch.ytid);
-    if (lv && lv.live) src = "https://i.ytimg.com/vi/" + lv.vid + "/hqdefault_live.jpg";
-    else if (v) src = "https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg";
-  } else if (ch.kind === "yt") src = "https://i.ytimg.com/vi/" + LTN.bible.first + "/mqdefault.jpg";
-  if (src) { img.onerror = () => { img.style.display = "none"; }; img.src = src; img.style.display = "block"; }
-  msg.textContent = (isLive(ch) ? "● LIVE  " : "") + (src ? "" : ch.name);
-  msg.style.alignItems = src ? "flex-end" : "center";
+    if (lv && lv.live) return { id: lv.vid, live: true };
+    const lst = ltnLists[ch.ytid];
+    if (lst && lst.sched && lst.sched.order.length) return { id: schedAt(lst.sched, Date.now() / 1000).it.id }; // what the clock says is on
+    ltnEnsure(ch); // not known yet: load it, and the preview refreshes when it arrives
+    return null;
+  }
+  const cur = channels[tuned] === ch && ytInfo.videoData && ytInfo.videoData.video_id; // the Daily Audio Bible: what it is playing now, else its first video
+  return { id: cur || LTN.bible.first };
+}
+const ytThumbs = (id) => ["maxresdefault", "sddefault", "hqdefault", "mqdefault"].map((q) => "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg"); // sharpest first; not every video has every size
+function ltnPreview(ch) { // the guide's preview box: the thumbnail of what is on the channel right now
+  const img = $("#gprevimg"), msg = $("#gprevmsg");
+  const v = ltnNowVideo(ch);
+  let chain = [], logo = false;
+  if (v && v.tw) chain = ["https://static-cdn.jtvnw.net/previews-ttv/live_user_" + LTN.twitch + "-640x360.jpg?t=" + Math.floor(Date.now() / 30000)];
+  else if (v && v.live) chain = ["maxresdefault_live", "hqdefault_live"].map((q) => "https://i.ytimg.com/vi/" + v.id + "/" + q + ".jpg");
+  else if (v && v.id) chain = ytThumbs(v.id);
+  else if (ch.kind === "ltn") { chain = ["ltn-wordmark.png"]; logo = true; } // LTN News is not a video
+  else { const nv = ch.ytid && ltnData && ltnData.yt && ltnData.yt.videos.find((x) => x.cid === ch.ytid); if (nv) chain = ytThumbs(nv.id); } // list not loaded yet: the newest upload until it arrives
+  const live = isLive(ch) || !!(v && (v.live || v.tw));
+  const none = () => { img.style.display = "none"; msg.textContent = (live ? "● LIVE  " : "") + ch.name; msg.style.alignItems = "center"; };
+  let k = 0;
+  const next = () => { if (k < chain.length) { img.src = chain[k++]; img.style.display = "block"; } else none(); };
+  img.style.objectFit = logo ? "contain" : "cover"; img.style.padding = logo ? "3vh" : "0";
+  img.onerror = next;
+  msg.textContent = live ? "● LIVE" : ""; msg.style.alignItems = "flex-end";
+  if (chain.length) next(); else none();
 }
 
 /* ---------- LTN NEWS pages ---------- */

@@ -836,7 +836,7 @@ document.addEventListener("click", (e) => { if (!started) return begin(); if (mo
 document.addEventListener("dblclick", toggleFs);
 let idleT;
 addEventListener("mousemove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 2500); });
-setInterval(() => { if (mode === "guide") renderGuide(); }, 15000);
+setInterval(() => { if (mode === "guide") { renderGuide(); if (ltnIsOwn(channels[gCh])) ltnPreview(channels[gCh]); } }, 15000);
 setInterval(() => { if (!NDI_MODE && ndiOn) syncOut(); }, 5000); // keeps the NDI copy of the playlist in step
 addEventListener("resize", () => mode === "guide" && renderGuide());
 // test hook: press T on a Pluto channel to force a bumper swap as if a 25 s placeholder were looping
