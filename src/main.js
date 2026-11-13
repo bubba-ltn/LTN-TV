@@ -4,6 +4,7 @@
 const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const http = require("http");
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -42,6 +43,7 @@ const DEFAULTS = {
   favOnly: false,         // guide and channel up/down use favorites only
   wxMode: "auto",         // weather location: "auto" (by your internet connection) or "zip"
   wxZip: "",              // US ZIP code used when wxMode is "zip"
+  twitchTrailer: "",      // link to the video shown on the Twitch channel while we are offline (YouTube, Twitch video or clip)
 };
 let S = { ...DEFAULTS };
 const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
@@ -69,6 +71,36 @@ ipcMain.handle("settings-set", (e, patch) => {
   return S;
 });
 
+/* ---------- the app serves its own page from http://localhost ---------- */
+// Twitch's player only runs inside a page whose host it can verify (parent=localhost), and YouTube's player wants a real web origin; neither
+// works from a file:// page. So a tiny server on this PC hands out the app's own files, and the windows load them from there.
+let appUrl = null;
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css", ".png": "image/png", ".json": "application/json" };
+function startServer() {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      try {
+        const rel = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
+        if (rel === "/") { res.writeHead(302, { Location: "/renderer/index.html" }); return res.end(); }
+        if (rel.includes("..") || !/^\/(renderer\/[\w.\-]+|node_modules\/hls\.js\/dist\/hls\.min\.js|icon\.png)$/.test(rel)) { res.writeHead(404); return res.end(); }
+        const file = path.join(__dirname, rel);
+        const data = fs.readFileSync(file); // reads from inside app.asar too
+        res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-store" });
+        res.end(data);
+      } catch { res.writeHead(404); res.end(); }
+    });
+    const listen = (port, retry) => {
+      server.once("error", (e) => { log("server error", e); if (retry) { server.removeAllListeners("error"); listen(0, false); } else resolve(null); });
+      server.listen(port, "127.0.0.1", () => resolve("http://localhost:" + server.address().port));
+    };
+    listen(47831, true); // a fixed port keeps the page's saved data (last channel) between runs; any free one if it is taken
+  });
+}
+function loadApp(w, query) {
+  if (appUrl) return w.loadURL(appUrl + "/renderer/index.html" + query);
+  return w.loadFile(path.join(__dirname, "renderer", "index.html"), query ? { query: { ndi: "1" } } : undefined);
+}
+
 /* ---------- main window and tray ---------- */
 let win, tray = null, quitting = false;
 function showWin() { if (!win) return; win.show(); if (win.isMinimized()) win.restore(); win.focus(); }
@@ -79,10 +111,13 @@ function create() {
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, webSecurity: false, backgroundThrottling: false },
   });
   win.setMenuBarVisibility(false);
-  win.loadFile(path.join(__dirname, "renderer", "index.html"));
+  loadApp(win, "").catch((e) => log("load failed", e));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
   win.webContents.on("console-message", (e, level, message, line, src) => { if (level >= 3 && !/CORS|net::ERR/.test(message)) log("window error:", message, String(src) + ":" + line); });
   win.webContents.on("render-process-gone", (e, d) => log("window process gone", d));
+  let moves = 0;
+  const logMove = (what) => { if (moves++ < 100) log("window", what, JSON.stringify(win.getBounds()), win.isFullScreen() ? "fullscreen" : "windowed"); };
+  win.on("move", () => logMove("move")); win.on("resize", () => logMove("resize"));
   win.on("minimize", () => { if (S.minimizeToTray) win.hide(); });
   win.on("close", (e) => { if (S.closeToTray && !quitting) { e.preventDefault(); win.hide(); } });
   win.on("closed", () => { win = null; ndiStop(); });
@@ -106,7 +141,7 @@ function updateTray() {
   ]));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   try { if (fs.statSync(logFile()).size > 512 * 1024) fs.unlinkSync(logFile()); } catch { /* no log yet */ }
   log("start", app.getVersion(), "electron", process.versions.electron);
   loadSettings();
@@ -115,9 +150,12 @@ app.whenReady().then(() => {
     let host = "";
     try { host = new URL(d.url).hostname; } catch { /* ignore */ }
     if (PLUTO_HOST.test(host)) { d.requestHeaders["User-Agent"] = PLUTO_UA; delete d.requestHeaders["Origin"]; delete d.requestHeaders["Referer"]; }
+    // YouTube's embedded player refuses to start without a web referrer, and a file:// page has none
+    if (!appUrl && d.resourceType === "subFrame" && /(^|\.)youtube(-nocookie)?\.com$/i.test(host)) d.requestHeaders["Referer"] = "https://backwhen.stream/";
     cb({ requestHeaders: d.requestHeaders });
   });
   ses.webRequest.onHeadersReceived((d, cb) => {
+    if (d.referrer && !/^(http:\/\/localhost|file:)/i.test(d.referrer)) return cb({}); // made by a third-party page (YouTube, Twitch): leave its headers alone
     const h = d.responseHeaders || {};
     for (const k of Object.keys(h)) if (/^access-control-allow-/i.test(k)) delete h[k];
     h["Access-Control-Allow-Origin"] = ["*"];
@@ -125,6 +163,8 @@ app.whenReady().then(() => {
     h["Access-Control-Allow-Methods"] = ["GET, POST, OPTIONS"];
     cb({ responseHeaders: h });
   });
+  appUrl = await startServer();
+  log("app url", appUrl || "file (server unavailable)");
   create();
   applySettings();
   if (S.ndiOnStart) win.webContents.once("did-finish-load", () => ndiSet(true));
@@ -170,7 +210,7 @@ async function ndiStart() {
       pump(st);
     } catch (err) { log("ndi: paint", err); }
   });
-  nw.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { ndi: "1" } }).catch((err) => log("ndi: load failed", err));
+  loadApp(nw, "?ndi=1").catch((err) => log("ndi: load failed", err));
   // a static screen paints nothing, so repeat the last picture about 30 times a second
   st.timer = setInterval(() => {
     if (st.last && !st.sending && Date.now() - st.lastPaint > 80) { st.pending = { data: st.last, tc: ndiNow() }; pump(st); }
