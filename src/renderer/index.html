@@ -27,7 +27,7 @@
   #ytm { position: fixed; left: -4000px; top: 0; width: 320px; height: 180px; border: 0; opacity: 0; pointer-events: none; z-index: -1; } /* sound only: parked off-screen, never seen */
   #tw { display: none; background: #000; } #tw.on { display: block; }
   #twp, #twp iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
-  #nextlive { position: fixed; left: 2vw; top: 3vh; max-width: 80vw; padding: 1.2vh 1.6vw; display: none; pointer-events: none; background: rgba(0,0,0,.7); border-left: 6px solid var(--orange); color: #fff; font-size: 3vh; font-weight: 900; letter-spacing: .02em; text-shadow: 2px 2px 0 #000; }
+  #nextlive { position: fixed; left: 2vw; top: 3vh; box-sizing: border-box; max-width: 30vw; padding: 1vh 1vw; display: none; pointer-events: none; background: rgba(0,0,0,.7); border-left: 6px solid var(--orange); color: #fff; font-size: 2.4vh; line-height: 1.25; font-weight: 900; letter-spacing: .02em; text-shadow: 2px 2px 0 #000; overflow-wrap: anywhere; }
   #nextlive.on { display: block; }
   body.gmode #nextlive { visibility: hidden; }
   #gprevimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; }
