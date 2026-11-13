@@ -43,6 +43,7 @@ const DEFAULTS = {
   favOnly: false,         // guide and channel up/down use favorites only
   wxMode: "auto",         // weather location: "auto" (by your internet connection) or "zip"
   wxZip: "",              // US ZIP code used when wxMode is "zip"
+  spotifyLinks: "",       // Spotify playlist links shown on LTN NEWS (empty = the built-in list)
   twitchTrailer: "",      // link to the video shown on the Twitch channel while we are offline (YouTube, Twitch video or clip)
 };
 let S = { ...DEFAULTS };

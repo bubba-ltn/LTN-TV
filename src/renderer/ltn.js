@@ -9,6 +9,75 @@ const LTN = {
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
+  // Spotify playlists listed on LTN NEWS: [id, title], in the order the profile page shows them (open.spotify.com/user/${user}/playlists). Spotify has no
+  // keyless way for an app to ask a profile for its list, so this was read from the page; new playlists can be added by pasting links in Settings
+  // ("Spotify playlist links"), or ask for the list to be refreshed. Covers are fetched through Spotify's own oEmbed.
+  spotify: { user: "31ejau6exrk7de732manwvlcxx3u", playlists: [
+    ["4eTWcSsMDgVQl4mqzeErZP","LTN Daily Audio Bible Playlist"],
+    ["7GxDRQVRyKtwChRdqaNCVc","Christian Littles Mix"],
+    ["4681y06CThMEsdylcYy5rZ","Christian Youth Group Mix"],
+    ["3uvGDIJ2V0IZKn1WiylEUQ","Christian Children's Mix"],
+    ["2M2kdd47E7AssVIiMYk6nP","Best Christian Music of 2025"],
+    ["6Y473qvgavjPDgDaFP3ylG","Every Christian #1"],
+    ["5J54Jjoazcf5iCGbXon7ED","Christian Rock Top 25"],
+    ["1PZnJOZJTWSRzIiFF6v3Sd","Christian Top 25"],
+    ["4UyWQsuupY9jUgw2yHBVvI","Christian Christmas Party Mega Mix"],
+    ["1bIXKXEskh5mKFTbaFgFd5","Christmas Hymn Mega Mix"],
+    ["7zitN22Ve4MZP4vTrJACrj","Ultimate Christian Christmas Mega Mix"],
+    ["60jGz5k5gjtvsY7r3oZDdG","Lo-fi Christmas Mega Mix"],
+    ["7cc9cT436d0SkIIaMtp46F","New Christian Christmas 2026"],
+    ["5nOLFvOATnpe3vU1SmPvTL","Christian Christmas Pop / Contemporary Mega Mix"],
+    ["3NIn6G0sUQO7pCSTZkxJIT","Christian Oldies Mega Mix"],
+    ["2sZ8gjAihkyX4A2XRiS2xV","Millennial Worship Mega Mix"],
+    ["1KidjJ0uybdlrsXzhLOLv8","2010s Christian Mega Mix"],
+    ["3rFKoSdz0aQLDYfc2eH0Ce","90s Christian Mega Mix"],
+    ["2WwgjizFeHnT0Krdz8UZG3","2000s Christian Mega Mix"],
+    ["7Ke8u3efYFBV5g3LtlwnUg","Christian Millennial Mega Mix"],
+    ["3GtZJCikF4dQqUThCPMuPb","New Christian Music This Week"],
+    ["6Mv7yWfmX5XVVvhg3kSVS2","New Christian R&B / Soul"],
+    ["43RQUl9NlSDHLuhSsChLzU","New Gospel"],
+    ["75LjwYz9jLi8VY2iPe15Kq","New Christian Hard Rock / Heavy Metal"],
+    ["4efUxEjoKmkXUnpUFRZLPt","New Christian EDM / Dance"],
+    ["37JzxMwHa8dwtyaTZREz68","New Christian Alternative"],
+    ["17JNBB2BjlkpDILzmsLE3E","New Christian Rap / Hip-Hop"],
+    ["0SY02ncpqXSOliyYRM8kGG","New Christian Rock"],
+    ["7df4GRDXQV0Q09Q8UkzkAF","New Christian Worship"],
+    ["1qt3qHe7vHzwWfzDUx4Ic6","New Christian Country / Southern Gospel"],
+    ["18xDjF7jbnh3AD5I8tfk7Z","New Christian Pop / Contemporary"],
+    ["6P4BYK3xPmUjIpAsm0XK1e","New Christian Indie / Folk"],
+    ["7bE1tUJ2V7ZupxR4xbs8ja","Joe's Favorites"],
+    ["1BtrR7u4qPnLBFDZKDvsyI","Kyle's Favorites"],
+    ["4etgWzS7OFz3tjMysdmmDG","Bubba's Favorites"],
+    ["5wJrgpWmHpjuTNsUQ6kf25","Radio Matt's Favorites"],
+    ["7l6HK30mkjESSccHB40F5I","Christian R&B / Soul Mega Mix"],
+    ["64xJVavYI4wadHMSDEDQIk","Ultimate Christian Pop / Rock / Rap Mega Mix"],
+    ["58MRYiwUUf9IgXRT3OmktO","Nerdy Lo-fi Mega Mix"],
+    ["3JEAHIozb7NQJZv4MLc0kM","Church Hymn Mega Mix"],
+    ["7l3w5MK5yapNPM3ZzsoY3F","Christian Reggae Mega Mix"],
+    ["28wrKAuxF5DL9MnmxLu6Nf","Christian Hard Rock / Heavy Metal Mega Mix"],
+    ["2b4aT24wvi40LvTfhPCH3Q","Christian Country / Southern Gospel Mega Mix"],
+    ["0lBMf9SH56RSCi56omC6IG","Gospel Mega Mix"],
+    ["23dzhfkMJ8uij48tg3cK1g","Christian Pop / Contemporary Mega Mix"],
+    ["0v3uuJcnrygLEuOsTgxANw","Christian Lo-fi Mega Mix"],
+    ["5OHbTHIoLXrrL2ud1jr6oE","Christian Worship Mega Mix"],
+    ["1lzexReFUL9YA00v64T8q0","Christian Alternative Mega Mix"],
+    ["4sOSspmyFWRsyZ8ffLKr73","Christian Rock Mega Mix"],
+    ["1xYrwRe9EvJQmE33G2KEkj","Christian Indie / Folk Mega Mix"],
+    ["0Dcf3faMuzUq3CYtzjl4Pq","Christian Rap / Hip-Hop Mega Mix"],
+    ["0i2YKE2RGDgQlNmfxGqHOJ","Christian EDM / Dance Mega Mix"],
+    ["0vDEOf72OSv0niwr5hznqY","Christian Recovery Mix"],
+    ["7wFur9Xiq0OZ8CfEQaTGHs","Upbeat Praise & Worship Mix"],
+    ["6mr4PyH6FKzhWtWUsksyCb","Christian Happy Rap Mix"],
+    ["2yc3B8vYMV1kDIs9VKHV6h","Christian Funny Mix"],
+    ["406ruCINHLqU7fsgixJhR2","Christian Calm Mix"],
+    ["5v5KlqGvqJ3H5ryl8SANbQ","Christian Coffee House Mix"],
+    ["1kP2yCnoXYshPFiUifzfsl","Christian Sleep Mix"],
+    ["7CAsKi9FJ4LoYswnvxP3Ku","Christian Workout Mix"],
+    ["2Cc24kFeKuXCjqIkhpT8P8","Christian Upbeat Mix"],
+    ["1gae1hPJMB5JrOyRKHXPf2","Christian Chill Mix"],
+    ["3V9EZa4920yOQw0zMvv3qw","Christian Love Mix"],
+    ["5WGKrW7Htpd8b6CDzkVcQM","Christian Sorrow Mix"],
+  ] },
   playsId: "UC8eB_7RaI0sKhVbo8abjhEw", // the LTN Plays channel (@LTNPlaysGames / @LoveThyNerd): LTN TWITCH shows what it is playing while we are not live
   // The stream schedule, weekly, in this time zone. day: 0 = Sunday ... 6 = Saturday. Twitch only gives its schedule to apps with a key, so it is kept here.
   schedule: { tz: "America/Chicago", slots: [
@@ -104,7 +173,7 @@ async function ltnYoutube() {
 }
 async function ltnSite() {
   const doc = await ltnXml(LTN.site);
-  return [...doc.getElementsByTagName("item")].slice(0, 6).map((it) => {
+  return [...doc.getElementsByTagName("item")].slice(0, 9).map((it) => {
     const body = ltnTag(it, "content:encoded") || ltnTag(it, "description");
     const img = (body.match(/src="(https:[^"]+?\.(?:jpe?g|png|webp)[^"]*)"/i) || [])[1] || "";
     const text = ltnTag(it, "description").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").replace(/The post .* appeared first on .*$/i, "").trim();
@@ -139,10 +208,44 @@ async function ytLive(id) {
   } finally { ctl.abort(); }
   return { live: false };
 }
+function ltnSpotifyList() { // [{id, t}]: the built-in list, or the playlists pasted in Settings
+  const base = LTN.spotify.playlists.map((p) => ({ id: p[0], t: p[1] }));
+  const text = (S.spotifyLinks || "").trim();
+  if (!text) return base;
+  const out = [];
+  for (const x of text.split(/[\s,]+/)) {
+    const m = /^(?:https?:\/\/open\.spotify\.com\/(?:embed\/)?playlist\/|spotify:playlist:)?([A-Za-z0-9]{22})(?:[?#\/].*)?$/.exec((x || "").trim());
+    if (m && !out.some((o) => o.id === m[1])) { const known = base.find((b) => b.id === m[1]); out.push({ id: m[1], t: known ? known.t : "" }); }
+  }
+  return out;
+}
+const ltnSpotifyIds = () => ltnSpotifyList().map((p) => p.id);
+async function ltnSpotify() { // the covers (and names we do not know) through Spotify's own oEmbed; covers are remembered between runs
+  const list = ltnSpotifyList(), names = {};
+  let cache = {};
+  try { cache = JSON.parse(localStorage.getItem("ltn-sp-covers") || "{}"); } catch { /* none yet */ }
+  const todo = list.filter((p) => !cache[p.id] || !p.t);
+  let k = 0;
+  const worker = async () => {
+    while (k < todo.length) {
+      const p = todo[k++];
+      try {
+        const r = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent("https://open.spotify.com/playlist/" + p.id), { cache: "no-store" });
+        if (!r.ok) continue;
+        const j = await r.json();
+        cache[p.id] = j.thumbnail_url || cache[p.id] || ""; names[p.id] = j.title || "";
+      } catch { /* try again next refresh */ }
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker)); // a few at a time
+  try { localStorage.setItem("ltn-sp-covers", JSON.stringify(cache)); } catch { /* storage blocked */ }
+  return list.map((p, i) => ({ id: p.id, t: p.t || names[p.id] || "", img: cache[p.id] || "", i })).filter((p) => p.t || p.img);
+}
 async function ltnLoad(force) {
   if (!force && ltnData && Date.now() - ltnAt < LTN.refreshMs) return;
   const [yt, site, tw] = await Promise.allSettled([ltnYoutube(), ltnSite(), ltnTwitch()]);
-  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null };
+  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null, spotify: (ltnData && ltnData.spotify) || [] };
+  ltnSpotify().then((sp) => { if (ltnData && sp.length) ltnData.spotify = sp; }).catch(() => {}); // in the background: many small requests
   if (tw.value) ltnTw = tw.value;
   ltnAt = Date.now();
 }
@@ -276,22 +379,29 @@ const ago = (at) => {
 };
 function ltnPages() {
   const d = ltnData, pages = [];
-  pages.push(() => {
-    const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
-    return ["LIVE NOW", live.length ? live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("") : `<div class="lmsg">Nothing is live right now.<br><span class="lsub">twitch.tv/${esc(LTN.twitch)}</span></div>`];
-  });
-  if (ltnTw) pages.push(() => {
+  // anything about being live is only here while something is live
+  const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
+  if (live.length) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
+  if (ltnTw && ltnTw.live) pages.push(() => {
     const t = ltnTw;
-    const img = t.live ? `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">` : `<div class="loff">OFFLINE</div>`;
-    return ["TWITCH", `<div class="ltw"><div class="ltwimg">${img}</div><div class="ltwtxt"><div class="lstat ${t.live ? "live" : ""}">${t.live ? "&#9679; LIVE NOW" : "NOT LIVE RIGHT NOW"}</div><div class="ltitle">${esc(t.title || "")}</div><div class="lsub">${esc([t.game, t.live && t.uptime ? "live for " + t.uptime : ""].filter(Boolean).join("  •  "))}</div><div class="lsub">twitch.tv/${esc(LTN.twitch)}</div></div></div>`];
+    const img = `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">`;
+    return ["TWITCH", `<div class="ltw"><div class="ltwimg">${img}</div><div class="ltwtxt"><div class="lstat live">&#9679; LIVE NOW</div><div class="ltitle">${esc(t.title || "")}</div><div class="lsub">${esc([t.game, t.uptime ? "live for " + t.uptime : ""].filter(Boolean).join("  •  "))}</div><div class="lsub">twitch.tv/${esc(LTN.twitch)}</div></div></div>`];
   });
-  if (d && d.site && d.site.length) for (let i = 0; i < d.site.length; i += 3) pages.push(() => ["LOVETHYNERD.COM", d.site.slice(i, i + 3).map((p) => `<div class="lpost">${p.img ? `<img src="${esc(p.img)}" onerror="this.style.display='none'">` : ""}<div class="lptxt"><div class="lpt">${esc(p.t)}</div><div class="lps">${esc([p.cat, p.by, ago(p.at)].filter(Boolean).join("  •  "))}</div><div class="lpx">${esc(p.text)}</div></div></div>`).join("")]);
+  // a small picture card: used for website posts and new videos, nine to a page (3 x 3)
+  const card = (img, title, meta) => {
+    const pic = img ? `<img src="${esc(img)}" onerror="this.style.visibility='hidden'">` : `<div class="lph">LTN</div>`;
+    return `<div class="lc">${pic}<div class="lct">${esc(title)}</div><div class="lcs">${esc(meta)}</div></div>`;
+  };
+  if (d && d.site && d.site.length) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
     const vids = d.yt.videos.slice(0, 18);
-    for (let i = 0; i < vids.length; i += 6) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid">${vids.slice(i, i + 6).map((v) => `<div class="lc"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" onerror="this.style.visibility='hidden'"><div class="lct">${esc(v.t)}</div><div class="lcs">${esc(v.show)}  •  ${ago(v.at)}</div></div>`).join("")}</div>`]);
-    for (let i = 0; i < d.yt.shows.length; i += 6) pages.push(() => ["OUR SHOWS", d.yt.shows.slice(i, i + 6).map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")]);
+    for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, v.show + "  •  " + ago(v.at))).join("")}</div>`]);
+    // every show on one page
+    if (d.yt.shows.length) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
   }
-  return pages;
+  // our Spotify playlists, five across
+  if (d && d.spotify && d.spotify.length) for (let i = 0; i < d.spotify.length; i += 15) pages.push(() => ["SPOTIFY PLAYLISTS", `<div class="lspot">${d.spotify.slice(i, i + 15).map((s) => `<div class="sp"><img src="${esc(s.img)}" onerror="this.style.visibility='hidden'"><div class="spt">${esc(s.t)}</div></div>`).join("")}</div>`]);
+  return pages.length ? pages : [() => ["LTN NEWS", `<div class="lmsg">Getting the latest...</div>`]];
 }
 function ltnDraw() {
   const pages = ltnPages();
