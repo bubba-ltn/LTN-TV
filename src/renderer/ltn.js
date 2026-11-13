@@ -9,7 +9,7 @@ const LTN = {
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
   music: "IBC3x9Zyo-Q", // background music on LTN LATEST: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
-  twitchTrailer: "", // YouTube video id of the trailer to play while Twitch is offline; empty = Twitch's own offline screen
+  twitchTrailer: "https://www.twitch.tv/videos/2816705775", // plays on a loop on LTN TWITCH while the stream is not live (the Settings link overrides it)
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
   pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
   // one channel each; @LoveThyNerd and @LTNPlaysGames are the same YouTube channel, so they share one
@@ -346,6 +346,7 @@ async function playTwitch(ch, gen) {
   if (tr && tr.type === "tv") { // a Twitch video: play it again when it ends, so the channel is never empty
     twPlayer = new Twitch.Player("twp", { video: tr.id, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
     twPlayer.addEventListener(Twitch.Player.ENDED, () => { try { twPlayer.seek(0); twPlayer.play(); } catch { /* player gone */ } });
+    twPlayer.addEventListener(Twitch.Player.READY, () => { try { twPlayer.play(); } catch { /* player gone */ } }); // start even if autoplay was held back
     ytAudioSoon();
     return;
   }
