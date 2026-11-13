@@ -39,7 +39,7 @@ const LTN = {
 function injectLtnChannels() {
   const free = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
   const add = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
-  add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN NEWS", kind: "ltn", blurb: "Who is live, and the newest from Love Thy Nerd: Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
+  add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN NEWS", kind: "ltn", blurb: "LTN News: who is live, plus the newest from Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
   add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN PLAYS GAMES", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, and the LTN Plays Games channel on shuffle when we are not." });
   add({ id: "ltn-bible", num: free(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
   const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
@@ -196,7 +196,7 @@ function ltnNow(ch) {
     const cur = channels[tuned] === ch ? ytNowTitle() : "";
     return { t: cur || (ch.ytid ? ch.name + " on YouTube" : "LTN Daily Audio Bible"), n: ch.ytid ? "Always on" : "Played through in order" };
   }
-  return { t: "The newest from Love Thy Nerd", n: "" };
+  return { t: "LTN News", n: "" };
 }
 function ltnPrograms(ch, from, to) {
   const l = ltnNow(ch);
