@@ -50,6 +50,7 @@
     },
     "asarUnpack": [
       "node_modules/@stagetimerio/grandiose/dist/**"
-    ]
+    ],
+    "npmRebuild": false
   }
 }
