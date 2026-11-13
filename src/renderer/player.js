@@ -11,7 +11,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -737,6 +737,7 @@ const settingRows = () => [
   { l: "FAVORITE THE CURRENT CHANNEL", v: () => (channels[tuned] ? (isFav(channels[tuned].id) ? "★ YES" : "NO") : ""), tog: () => toggleFav(channels[tuned] && channels[tuned].id) },
   { l: "WEATHER LOCATION", v: () => (S.wxMode === "zip" ? "ZIP CODE" : "AUTO (BY INTERNET)"), tog: () => { setS({ wxMode: S.wxMode === "zip" ? "auto" : "zip" }); wxChanged(); } },
   { l: "WEATHER ZIP CODE (US)", v: () => S.wxZip || "NOT SET", edit: { init: () => S.wxZip, digits: true, max: 5, set: (t) => { if (t && !/^\d{5}$/.test(t)) return flash("ENTER A 5 DIGIT ZIP"); setS({ wxZip: t, wxMode: t ? "zip" : "auto" }); wxChanged(); } } },
+  { l: "TWITCH TRAILER LINK (WHEN OFFLINE)", v: () => (S.twitchTrailer ? S.twitchTrailer.replace(/^https?:\/\/(www\.)?/, "") : "NOT SET"), edit: { init: () => S.twitchTrailer, max: 300, set: (t) => { t = t.trim(); if (t && !ltnParseTrailer(t)) return flash("NOT A YOUTUBE OR TWITCH LINK"); setS({ twitchTrailer: t }); if (channels[tuned] && channels[tuned].kind === "twitch") tune(tuned, false); } } },
   { l: "TOGGLE FULLSCREEN NOW", v: () => "ENTER", tog: () => toggleFs() },
   { l: "CLOSE SETTINGS", v: () => "", tog: () => closeSettings() },
 ];

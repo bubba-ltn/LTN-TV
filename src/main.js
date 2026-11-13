@@ -43,6 +43,7 @@ const DEFAULTS = {
   favOnly: false,         // guide and channel up/down use favorites only
   wxMode: "auto",         // weather location: "auto" (by your internet connection) or "zip"
   wxZip: "",              // US ZIP code used when wxMode is "zip"
+  twitchTrailer: "",      // link to the video shown on the Twitch channel while we are offline (YouTube, Twitch video or clip)
 };
 let S = { ...DEFAULTS };
 const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
@@ -154,6 +155,7 @@ app.whenReady().then(async () => {
     cb({ requestHeaders: d.requestHeaders });
   });
   ses.webRequest.onHeadersReceived((d, cb) => {
+    if (d.referrer && !/^(http:\/\/localhost|file:)/i.test(d.referrer)) return cb({}); // made by a third-party page (YouTube, Twitch): leave its headers alone
     const h = d.responseHeaders || {};
     for (const k of Object.keys(h)) if (/^access-control-allow-/i.test(k)) delete h[k];
     h["Access-Control-Allow-Origin"] = ["*"];

@@ -160,7 +160,7 @@ function ltnStart() { // called once the lineup is known (visible window only: t
 function ytNowTitle() { return (ytInfo.videoData && ytInfo.videoData.title) || ""; }
 function ltnNow(ch) {
   const live = isLive(ch);
-  if (ch.kind === "twitch") return live ? { t: "● LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: "Not live right now", n: LTN.twitchTrailer ? "Playing the trailer" : "twitch.tv/" + LTN.twitch };
+  if (ch.kind === "twitch") return live ? { t: "● LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: "Not live right now", n: ltnTrailer() ? "Playing the trailer" : "twitch.tv/" + LTN.twitch };
   if (ch.kind === "yt") {
     if (live) return { t: "● LIVE: " + (ltnLiveMap[ch.ytid].title || ch.name), n: "" };
     const cur = channels[tuned] === ch ? ytNowTitle() : "";
@@ -320,15 +320,35 @@ function ytFollow(y) {
 function ltnTwitchLib() {
   return window.Twitch && window.Twitch.Player ? Promise.resolve() : new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://player.twitch.tv/js/embed/v1.js"; s.onload = res; s.onerror = rej; document.head.append(s); });
 }
+// a trailer link: YouTube video, Twitch video, or Twitch clip
+function ltnParseTrailer(u) {
+  u = (u || "").trim();
+  if (!u) return null;
+  let m;
+  if ((m = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|live\/|shorts\/)|youtu\.be\/)([\w-]{11})/i.exec(u))) return { type: "yt", id: m[1] };
+  if (/^[\w-]{11}$/.test(u) && !/^\d+$/.test(u)) return { type: "yt", id: u };
+  if ((m = /twitch\.tv\/(?:\w+\/)?videos\/(\d+)/i.exec(u)) || (m = /^v?(\d{6,})$/.exec(u))) return { type: "tv", id: m[1] };
+  if ((m = /(?:clips\.twitch\.tv\/(?:embed\?clip=)?|twitch\.tv\/\w+\/clip\/)([\w-]+)/i.exec(u))) return { type: "clip", id: m[1] };
+  return null;
+}
+const ltnTrailer = () => ltnParseTrailer(S.twitchTrailer || LTN.twitchTrailer);
 async function playTwitch(ch, gen) {
   loadingOn(false);
   ytInfo = {};
   ltnTunedLive = isLive(ch);
-  if (!ltnTunedLive && LTN.twitchTrailer) return ytShow(ytEmbed(LTN.twitchTrailer + "?playlist=" + LTN.twitchTrailer), gen);
+  const tr = ltnTunedLive ? null : ltnTrailer(); // not live: play the trailer if one is set
+  if (tr && tr.type === "yt") return ytShow(ytEmbed(tr.id + "?playlist=" + tr.id), gen);
   $("#tw").classList.add("on");
+  if (tr && tr.type === "clip") { $("#twp").innerHTML = '<iframe src="https://clips.twitch.tv/embed?clip=' + esc(tr.id) + '&parent=localhost&autoplay=true&muted=false" allow="autoplay; fullscreen" allowfullscreen></iframe>'; return; }
   try { await ltnTwitchLib(); } catch { return flash("TWITCH UNAVAILABLE"); }
   if (gen !== tuneGen) return;
   $("#twp").textContent = "";
+  if (tr && tr.type === "tv") { // a Twitch video: play it again when it ends, so the channel is never empty
+    twPlayer = new Twitch.Player("twp", { video: tr.id, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
+    twPlayer.addEventListener(Twitch.Player.ENDED, () => { try { twPlayer.seek(0); twPlayer.play(); } catch { /* player gone */ } });
+    ytAudioSoon();
+    return;
+  }
   // the player only runs on a page whose host is in "parent"; the app serves itself from http://localhost for exactly this
   twPlayer = new Twitch.Player("twp", { channel: LTN.twitch, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
   ytAudioSoon();
