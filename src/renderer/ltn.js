@@ -44,7 +44,7 @@ function injectLtnChannels() {
   let n = LTN.numShows;
   for (const s of LTN.shows) {
     n = free(n);
-    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on, and the live stream whenever the show is live." });
+    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   }
   channels.sort((a, b) => a.num - b.num);
 }
@@ -178,6 +178,7 @@ function ltnStart() { // called once the lineup is known (visible window only: t
   if (NDI_MODE) return;
   ltnLoad(false).catch(() => {});
   ltnLivePoll();
+  setTimeout(ltnWarm, 20000);
   ltnPollTimers.push(setInterval(ltnLivePoll, LTN.livePollMs), setInterval(ltnPollTuned, 75000));
 }
 
@@ -188,6 +189,8 @@ function ltnNow(ch) {
   if (ch.kind === "twitch") return live ? { t: "\u25CF LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: (channels[tuned] === ch && ytNowTitle()) || "LTN Plays", n: ltnNextText() || "twitch.tv/" + LTN.twitch };
   if (ch.kind === "yt") {
     if (live) return { t: "● LIVE: " + (ltnLiveMap[ch.ytid].title || ch.name), n: "" };
+    const lst = ch.ytid && ch.yt.sched && ltnLists[ch.ytid];
+    if (lst && lst.sched && lst.sched.order.length) { const a = schedAt(lst.sched, Date.now() / 1000); return { t: a.it.title || ch.name, n: "Up next: " + (a.next.title || "") }; }
     const cur = channels[tuned] === ch ? ytNowTitle() : "";
     return { t: cur || (ch.ytid ? ch.name + " on YouTube" : "LTN Daily Audio Bible"), n: ch.ytid ? "Always on" : "Played through in order" };
   }
@@ -264,6 +267,92 @@ async function playLtn(ch, gen) {
   ltnRefreshTimer = setInterval(() => reload(true), LTN.refreshMs);
 }
 
+/* ---------- the shared schedule: every show channel is always on, shuffled, and the same for everyone ---------- */
+// The channel's newest 100 videos (with their lengths) are put in a fixed pseudo-random order that depends only on the channel and the video ids,
+// then played back to back on a loop that starts at a fixed moment. What is on, and how far in, is therefore a function of the clock alone:
+// anyone tuning in at the same time sees the same thing, in the shuffled order, with no server involved.
+const SCHED_ANCHOR = 1767225600; // 1 Jan 2026 00:00 UTC: where the loop starts
+const SCHED_EPOCH = 6 * 3600;    // everyone refreshes the video list at the same UTC moments (00:00, 06:00, 12:00, 18:00)
+const ltnLists = {}, ltnListLoading = {};
+let ytSched = null, ytSchedCtx = null, ytSchedActive = false, ytCtl = null, ytLoadAt = 0, ytBad = new Set();
+const ltnSchedOn = (ch) => !!(ch && ch.kind === "yt" && ch.yt && ch.yt.sched && ytSchedActive);
+function ltnHash(str) { // 32-bit FNV-1a with a finishing mix
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return h >>> 0;
+}
+// the first 100 videos of a playlist page: [{id, len (seconds), title}]
+async function ltnFetchList(listId) {
+  const toSec = (t) => t.split(":").reduce((a, x) => a * 60 + +x, 0);
+  let lastErr;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch("https://www.youtube.com/playlist?list=" + listId, { cache: "no-store", headers: { "Accept-Language": "en-US" } });
+      const html = await r.text();
+      const m = /var ytInitialData = (\{.*?\});<\/script>/s.exec(html);
+      if (!m) throw new Error("no list data");
+      const out = [];
+      (function walk(o) {
+        if (!o || typeof o !== "object") return;
+        const l = o.lockupViewModel;
+        if (l && l.contentType === "LOCKUP_CONTENT_TYPE_VIDEO" && l.contentId) {
+          const badges = [];
+          (function w(x) { if (!x || typeof x !== "object") return; if (x.thumbnailBadgeViewModel) badges.push(x.thumbnailBadgeViewModel.text); for (const k in x) w(x[k]); })(l);
+          const t = badges.find((b) => /^\d+(:\d+)+$/.test(b || ""));
+          const title = (l.metadata && l.metadata.lockupMetadataViewModel && l.metadata.lockupMetadataViewModel.title && l.metadata.lockupMetadataViewModel.title.content) || "";
+          if (t) out.push({ id: l.contentId, len: toSec(t), title });
+        }
+        for (const k in o) walk(o[k]);
+      })(JSON.parse(m[1]));
+      if (!out.length) throw new Error("empty list");
+      return out;
+    } catch (e) { lastErr = e; await new Promise((res) => setTimeout(res, 1500)); }
+  }
+  throw lastErr;
+}
+function ltnBuildSchedule(items, seed) {
+  // sorted by a hash of (channel, video): adding or removing one video only inserts or removes it; everything else keeps its place
+  const order = items.map((it) => ({ ...it, k: ltnHash(seed + ":" + it.id) })).sort((a, b) => a.k - b.k || (a.id < b.id ? -1 : 1));
+  let acc = 0;
+  for (const it of order) { it.start = acc; acc += it.len; }
+  return { order, total: acc, items, seed };
+}
+function schedAt(sch, nowSec) { // what is on at this moment: {it, offset, index, next}
+  const pos = (((nowSec - SCHED_ANCHOR) % sch.total) + sch.total) % sch.total;
+  let lo = 0, hi = sch.order.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (sch.order[mid].start <= pos) lo = mid; else hi = mid - 1; }
+  const it = sch.order[lo];
+  return { it, offset: pos - it.start, index: lo, next: sch.order[(lo + 1) % sch.order.length] };
+}
+async function ltnGetSchedule(ch) {
+  const ep = Math.floor(Date.now() / 1000 / SCHED_EPOCH), id = ch.ytid;
+  const have = ltnLists[id];
+  if (have && have.epoch === ep) return have.sched;
+  if (ltnListLoading[id]) return ltnListLoading[id];
+  ltnListLoading[id] = (async () => {
+    try {
+      let items = null;
+      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
+      if (!items) {
+        items = await ltnFetchList(ch.yt.list);
+        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, items })); } catch { /* storage full or blocked */ }
+      }
+      const sched = ltnBuildSchedule(items.filter((x) => !ytBad.has(x.id)), id);
+      ltnLists[id] = { epoch: ep, sched };
+      return sched;
+    } catch { return have ? have.sched : null; } // keep the last list if refreshing fails
+    finally { delete ltnListLoading[id]; }
+  })();
+  return ltnListLoading[id];
+}
+async function ltnWarm() { // load every channel's list in the background (one at a time) so the guide can name what is on
+  for (const c of channels.filter((x) => x.kind === "yt" && x.yt && x.yt.sched)) {
+    try { await ltnGetSchedule(c); if (mode === "guide") renderGuide(); } catch { /* next one */ }
+    await new Promise((r) => setTimeout(r, 3500));
+  }
+}
+
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
 let ytJumpVid = "", ytRecent = [];
 let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "", ytFollowVid = 0;
@@ -304,14 +393,57 @@ function playYt(ch, gen, owner) { // owner: the channel being watched, when it i
   loadingOn(false);
   ytInfo = {}; ytPos = 0; ytWant = -1; ytVidAtCmd = ""; ytJumpVid = ""; ytRecent = [];
   ltnTunedLive = isLive(ch); ltnTunedSig = ltnSig(owner || ch);
+  clearInterval(ytCtl); ytCtl = null; ytSched = null; ytSchedActive = false;
   if (ltnTunedLive) return ytShow(ytEmbed("live_stream?channel=" + ch.ytid), gen);
+  if (ch.yt.sched) { // the shared shuffled schedule; if the list cannot be loaded, fall back to the plain playlist
+    loadingOn(true);
+    ltnGetSchedule(ch).then((sch) => {
+      if (gen !== tuneGen) return;
+      loadingOn(false);
+      if (!sch || !sch.order.length) return ytLegacy(ch, gen);
+      ytSched = sch; ytSchedCtx = ch; ytSchedActive = true;
+      const a = schedAt(sch, Date.now() / 1000);
+      ytLoadAt = Date.now();
+      ytShow(ytEmbed(a.it.id + "?start=" + Math.floor(a.offset)), gen);
+      ytCtl = setInterval(() => ytTick(ch, gen), 1000);
+    }).catch(() => { if (gen === tuneGen) { loadingOn(false); ytLegacy(ch, gen); } });
+    return;
+  }
+  ytLegacy(ch, gen);
+}
+function ytLegacy(ch, gen) { // the plain playlist (the Daily Bible, or a show whose list could not be loaded)
   ytShow(ytEmbed(ch.yt.first ? ch.yt.first + "?list=" + ch.yt.list : "videoseries?list=" + ch.yt.list), gen);
+}
+// every second: is the player showing what the clock says should be on? If not, put it right.
+function ytTick(ch, gen) {
+  if (gen !== tuneGen || !ytSched || !ytSchedActive) { clearInterval(ytCtl); ytCtl = null; return; }
+  const a = schedAt(ytSched, Date.now() / 1000), cur = ytInfo.videoData && ytInfo.videoData.video_id, since = Date.now() - ytLoadAt;
+  if (cur == null || ytInfo.currentTime == null) { // the player has not reported anything: after a while, load it again
+    if (since > 20000) { ytLoadAt = Date.now(); ytShow(ytEmbed(a.it.id + "?start=" + Math.floor(a.offset)), gen); }
+    return;
+  }
+  if (cur !== a.it.id) { // the next programme has started (or the player is on something else): go to it, part-way in if need be
+    if (since > 3500) { ytLoadAt = Date.now(); ytCmd("loadVideoById", [a.it.id, Math.floor(a.offset)]); }
+    return;
+  }
+  if ((ytInfo.playerState === -1 || ytInfo.playerState === 5) && since > 15000) { ytLoadAt = Date.now(); ytCmd("loadVideoById", [a.it.id, Math.floor(a.offset)]); return; } // stuck before playing
+  if (ytInfo.playerState === 1 && since > 15000 && Math.abs(ytInfo.currentTime - a.offset) > 8) { ytLoadAt = Date.now(); ytCmd("seekTo", [a.offset, true]); } // drifted
+}
+// a video that cannot be played (removed, or embedding switched off): leave it out of the schedule
+function ytOnError() {
+  const cur = ytInfo.videoData && ytInfo.videoData.video_id;
+  if (!ytSchedActive || !ytSched || !cur) return;
+  ytBad.add(cur);
+  const rest = ytSched.items.filter((x) => !ytBad.has(x.id));
+  if (!rest.length) return;
+  ytSched = ltnBuildSchedule(rest, ytSched.seed);
+  if (ytSchedCtx && ltnLists[ytSchedCtx.ytid]) ltnLists[ytSchedCtx.ytid].sched = ytSched;
 }
 // a show channel is "already on": pick the programme from the wall clock so everyone (and the NDI copy) sees the same thing, and join part-way in
 const ytHash = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 function ytPosition() {
   const ch = ltnPlayCh();
-  if (NDI_MODE || !ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2) return;
+  if (NDI_MODE || !ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2 || ltnSchedOn(ch)) return;
   const pl = ytInfo.playlist;
   if (!Array.isArray(pl) || !pl.length) return;
   const now = Date.now() / 1000, slot = 4 * 3600;
@@ -343,6 +475,7 @@ addEventListener("message", (e) => {
   if (!/youtube/.test(e.origin || "")) return;
   let d = e.data;
   try { if (typeof d === "string") d = JSON.parse(d); } catch { return; }
+  if (d && d.event === "onError") ytOnError();
   if (d && (d.event === "infoDelivery" || d.event === "initialDelivery") && d.info) {
     Object.assign(ytInfo, d.info);
     if (d.info.videoData) {
@@ -356,7 +489,7 @@ addEventListener("message", (e) => {
 });
 function ytAdvance() {
   const ch = ltnPlayCh();
-  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive) return;
+  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive || ltnSchedOn(ch)) return;
   if (ch.yt.wall && ytPos !== 2) return; // still joining part-way through
   const d = ytInfo.duration, t = ytInfo.currentTime, pl = ytInfo.playlist, vid = ytInfo.videoData && ytInfo.videoData.video_id, cur = ytInfo.playlistIndex;
   if (!(d > 20) || t == null || !Array.isArray(pl) || pl.length < 2 || !vid || cur == null || ytJumpVid === vid) return;
@@ -392,11 +525,11 @@ async function ytSkipIfShort(vid) {
   if (Array.isArray(pl) && pl.length > 1 && cur != null) ytGo(cur, pl, !!ch.yt.random);
 }
 // the visible window reports where the playlist is; the hidden NDI copy follows it
-const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0, vid: (ytInfo.videoData && ytInfo.videoData.video_id) || "" } : undefined);
+const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && !ltnSchedOn(ltnPlayCh()) && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0, vid: (ytInfo.videoData && ytInfo.videoData.video_id) || "" } : undefined);
 let ytFollowAt = 0;
 function ytFollow(y) {
   const ch = ltnPlayCh();
-  if (!y || !ch || ch.kind !== "yt" || ltnTunedLive) return;
+  if (!y || !ch || ch.kind !== "yt" || ltnTunedLive || ltnSchedOn(ch)) return;
   if (ytInfo.playlistIndex == null || ytInfo.currentTime == null) return; // the copy has not reported yet: do not guess
   if (ch.yt.random) { // shuffled: play the same video at the same point
     const mine = (ytInfo.videoData && ytInfo.videoData.video_id) || "";
@@ -472,6 +605,7 @@ async function playTwitch(ch, gen) {
 }
 
 function ltnStop() {
+  clearInterval(ytCtl); ytCtl = null; ytSched = null; ytSchedActive = false;
   ltnNextShow(false);
   clearInterval(ltnPageTimer); clearInterval(ltnRefreshTimer); clearInterval(ytListenTimer);
   ltnPageTimer = ltnRefreshTimer = ytListenTimer = null;
