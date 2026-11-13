@@ -1,0 +1,12 @@
+{
+  "name": "backwhentv-windows",
+  "productName": "BackWhenTV",
+  "version": "1.1.0",
+  "description": "BackWhenTV for Windows: cable TV, the way you remember it.",
+  "main": "main.js",
+  "author": "BackWhenTV",
+  "license": "MIT",
+  "dependencies": {
+    "hls.js": "^1.5.0"
+  }
+}
