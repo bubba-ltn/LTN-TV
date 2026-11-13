@@ -8,8 +8,13 @@ const LTN = {
   numLatest: 158, numTwitch: 159, numBible: 160, numShows: 161, // moved up automatically if the lineup already uses them
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
+  playsId: "UC8eB_7RaI0sKhVbo8abjhEw", // the LTN Plays channel (@LTNPlaysGames / @LoveThyNerd): LTN TWITCH shows what it is playing while we are not live
+  // The stream schedule, weekly, in this time zone. day: 0 = Sunday ... 6 = Saturday. Twitch only gives its schedule to apps with a key, so it is kept here.
+  schedule: { tz: "America/Chicago", slots: [
+    { day: 5, at: "11:00", mins: 240, title: "Lunch Time Stream with Matt" },
+    { day: 1, at: "11:00", mins: 60, title: "Lunch Time Stream with Matt" },
+  ] },
   music: "IBC3x9Zyo-Q", // background music on LTN LATEST: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
-  twitchTrailer: "https://www.twitch.tv/videos/2816705775", // plays on a loop on LTN TWITCH while the stream is not live (the Settings link overrides it)
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
   pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
   // one channel each; @LoveThyNerd and @LTNPlaysGames are the same YouTube channel, so they share one
@@ -45,7 +50,15 @@ function injectLtnChannels() {
 
 /* ---------- shared state ---------- */
 let ltnData = null, ltnAt = 0, ltnPage = 0, ltnPageTimer = null, ltnRefreshTimer = null;
-let ltnLiveMap = {}, ltnTw = null, ltnTunedLive = false, ltnPollTimers = [];
+let ltnLiveMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
+const ltnMirror = () => channels.find((x) => x.ytid === LTN.playsId); // the LTN Plays channel
+// what is really playing: for LTN TWITCH while offline, that is the LTN Plays channel
+const ltnPlayCh = () => { const ch = channels[tuned]; return ch && ch.kind === "twitch" && !isLive(ch) ? ltnMirror() || ch : ch; };
+// everything that decides WHAT plays on a channel; when it changes the channel is re-tuned
+function ltnSig(ch) {
+  if (ch.kind === "twitch") { if (isLive(ch)) return "tw"; const m = ltnMirror(); return "off" + (m && isLive(m) ? "+yt" : ""); }
+  return isLive(ch) ? "live" : "off";
+}
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ltnTag = (el, tag) => { const n = el.getElementsByTagName(tag)[0]; return n ? n.textContent.trim() : ""; };
 const ltnIsOwn = (ch) => ch && (ch.kind === "ltn" || ch.kind === "yt" || ch.kind === "twitch");
@@ -129,7 +142,7 @@ function ltnApplyLive(s) { // the hidden NDI copy receives this from the visible
 function ltnLiveChanged() {
   if (mode === "guide") renderGuide();
   const ch = channels[tuned];
-  if (started && ltnIsOwn(ch) && ch.kind !== "ltn" && isLive(ch) !== ltnTunedLive) tune(tuned, false); // went live or ended: switch what is playing
+  if (started && ltnIsOwn(ch) && ch.kind !== "ltn" && ltnSig(ch) !== ltnTunedSig) tune(tuned, false); // went live or ended: switch what is playing
   syncOut();
 }
 async function ltnLivePoll() {
@@ -144,7 +157,7 @@ async function ltnPollTuned() {
   if (!started || !ltnIsOwn(ch)) return;
   const before = JSON.stringify(ltnLiveSnap());
   try {
-    if (ch.kind === "twitch") ltnTw = await ltnTwitch();
+    if (ch.kind === "twitch") { ltnTw = await ltnTwitch(); if (!ltnTw.live && ltnMirror()) ltnLiveMap[LTN.playsId] = await ytLive(LTN.playsId); }
     else if (ch.kind === "yt" && ch.ytid) ltnLiveMap[ch.ytid] = await ytLive(ch.ytid);
   } catch { return; }
   if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
@@ -160,7 +173,7 @@ function ltnStart() { // called once the lineup is known (visible window only: t
 function ytNowTitle() { return (ytInfo.videoData && ytInfo.videoData.title) || ""; }
 function ltnNow(ch) {
   const live = isLive(ch);
-  if (ch.kind === "twitch") return live ? { t: "● LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: "Not live right now", n: ltnTrailer() ? "Playing the trailer" : "twitch.tv/" + LTN.twitch };
+  if (ch.kind === "twitch") return live ? { t: "\u25CF LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: (channels[tuned] === ch && ytNowTitle()) || "LTN Plays", n: ltnNextText() || "twitch.tv/" + LTN.twitch };
   if (ch.kind === "yt") {
     if (live) return { t: "● LIVE: " + (ltnLiveMap[ch.ytid].title || ch.name), n: "" };
     const cur = channels[tuned] === ch ? ytNowTitle() : "";
@@ -174,6 +187,7 @@ function ltnPrograms(ch, from, to) {
 }
 function ltnPreviewClear() { const i = $("#gprevimg"); if (i) { i.style.display = "none"; i.removeAttribute("src"); } }
 function ltnPreview(ch) { // a picture for the guide's preview box
+  if (ch.kind === "twitch" && !isLive(ch) && ltnMirror()) ch = ltnMirror(); // offline: it shows the LTN Plays channel
   const img = $("#gprevimg"), msg = $("#gprevmsg");
   let src = "";
   if (ch.kind === "twitch" && isLive(ch)) src = "https://static-cdn.jtvnw.net/previews-ttv/live_user_" + LTN.twitch + "-640x360.jpg?t=" + Math.floor(Date.now() / 30000);
@@ -272,17 +286,17 @@ function ytShow(src, gen) {
   };
   f.src = src;
 }
-function playYt(ch, gen) {
+function playYt(ch, gen, owner) { // owner: the channel being watched, when it is borrowing this one's programme
   loadingOn(false);
   ytInfo = {}; ytPos = 0;
-  ltnTunedLive = isLive(ch);
+  ltnTunedLive = isLive(ch); ltnTunedSig = ltnSig(owner || ch);
   if (ltnTunedLive) return ytShow(ytEmbed("live_stream?channel=" + ch.ytid), gen);
   ytShow(ytEmbed(ch.yt.first ? ch.yt.first + "?list=" + ch.yt.list : "videoseries?list=" + ch.yt.list), gen);
 }
 // a show channel is "already on": pick the programme from the wall clock so everyone (and the NDI copy) sees the same thing, and join part-way in
 const ytHash = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
 function ytPosition() {
-  const ch = channels[tuned];
+  const ch = ltnPlayCh();
   if (NDI_MODE || !ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2) return;
   const pl = ytInfo.playlist;
   if (!Array.isArray(pl) || !pl.length) return;
@@ -306,10 +320,10 @@ addEventListener("message", (e) => {
   }
 });
 // the visible window reports where the playlist is; the hidden NDI copy follows it
-const ytSync = () => (channels[tuned] && channels[tuned].kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0 } : undefined);
+const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0 } : undefined);
 let ytFollowAt = 0;
 function ytFollow(y) {
-  if (!y || !channels[tuned] || channels[tuned].kind !== "yt" || ltnTunedLive) return;
+  if (!y || !ltnPlayCh() || ltnPlayCh().kind !== "yt" || ltnTunedLive) return;
   if (ytInfo.playlistIndex == null || ytInfo.currentTime == null) return; // the copy has not reported yet: do not guess
   if (Date.now() - ytFollowAt < 30000) return; // at most one correction every 30 s
   if (ytInfo.playlistIndex !== y.idx) { ytFollowAt = Date.now(); ytCmd("playVideoAt", [y.idx]); }
@@ -320,42 +334,69 @@ function ytFollow(y) {
 function ltnTwitchLib() {
   return window.Twitch && window.Twitch.Player ? Promise.resolve() : new Promise((res, rej) => { const s = document.createElement("script"); s.src = "https://player.twitch.tv/js/embed/v1.js"; s.onload = res; s.onerror = rej; document.head.append(s); });
 }
-// a trailer link: YouTube video, Twitch video, or Twitch clip
-function ltnParseTrailer(u) {
-  u = (u || "").trim();
-  if (!u) return null;
-  let m;
-  if ((m = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|live\/|shorts\/)|youtu\.be\/)([\w-]{11})/i.exec(u))) return { type: "yt", id: m[1] };
-  if (/^[\w-]{11}$/.test(u) && !/^\d+$/.test(u)) return { type: "yt", id: u };
-  if ((m = /twitch\.tv\/(?:\w+\/)?videos\/(\d+)/i.exec(u)) || (m = /^v?(\d{6,})$/.exec(u))) return { type: "tv", id: m[1] };
-  if ((m = /(?:clips\.twitch\.tv\/(?:embed\?clip=)?|twitch\.tv\/\w+\/clip\/)([\w-]+)/i.exec(u))) return { type: "clip", id: m[1] };
-  return null;
+// ---- when is the next live stream (weekly schedule above, shown in this PC's time zone) ----
+function ltnTzOffset(ts, tz) { // minutes east of UTC at that moment
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+  const p = Object.fromEntries(f.formatToParts(new Date(ts)).map((x) => [x.type, +x.value]));
+  return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ts / 1000) * 1000) / 60000;
 }
-const ltnTrailer = () => ltnParseTrailer(S.twitchTrailer || LTN.twitchTrailer);
+function ltnNextStream(now = Date.now()) { // the stream on now (if any) or the next one: {start, end, title}
+  const { tz, slots } = LTN.schedule;
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "numeric", day: "numeric" });
+  const p = Object.fromEntries(f.formatToParts(new Date(now)).map((x) => [x.type, +x.value]));
+  const base = Date.UTC(p.year, p.month - 1, p.day);
+  let best = null;
+  for (let d = -1; d <= 8; d++) {
+    const day = new Date(base + d * 86400000);
+    for (const s of slots) {
+      if (s.day !== day.getUTCDay()) continue;
+      const [h, m] = s.at.split(":").map(Number);
+      const wall = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m);
+      let start = wall - ltnTzOffset(wall, tz) * 60000;
+      start = wall - ltnTzOffset(start, tz) * 60000; // once more, in case the clocks change that day
+      const end = start + s.mins * 60000;
+      if (end > now && (!best || start < best.start)) best = { start, end, title: s.title };
+    }
+  }
+  return best;
+}
+function ltnNextText() {
+  const n = ltnNextStream();
+  if (!n) return "";
+  const now = Date.now(), fmt = (ts, o) => new Date(ts).toLocaleString(undefined, o);
+  const zone = fmt(n.start, { timeZoneName: "short" }).split(" ").pop();
+  const time = fmt(n.start, { hour: "numeric", minute: "2-digit" });
+  const sd = new Date(n.start).toDateString();
+  const when = sd === new Date(now).toDateString() ? "TODAY" : sd === new Date(now + 864e5).toDateString() ? "TOMORROW" : fmt(n.start, { weekday: "long" }).toUpperCase();
+  return ((n.start <= now ? "SCHEDULED NOW: " : "NEXT LIVE STREAM: ") + when + " " + time + " " + zone + (n.title ? "  •  " + n.title : "")).toUpperCase();
+}
+function ltnNextShow(on) { // the note in the top-left corner
+  clearInterval(ltnNextTimer); ltnNextTimer = null;
+  const el = $("#nextlive");
+  if (!el) return;
+  if (!on) { el.classList.remove("on"); return; }
+  const draw = () => { const t = ltnNextText(); el.textContent = t; el.classList.toggle("on", !!t); };
+  draw(); ltnNextTimer = setInterval(draw, 30000);
+}
 async function playTwitch(ch, gen) {
   loadingOn(false);
   ytInfo = {};
-  ltnTunedLive = isLive(ch);
-  const tr = ltnTunedLive ? null : ltnTrailer(); // not live: play the trailer if one is set
-  if (tr && tr.type === "yt") return ytShow(ytEmbed(tr.id + "?playlist=" + tr.id), gen);
+  const m = isLive(ch) ? null : ltnMirror();
+  if (m) { playYt(m, gen, ch); ltnNextShow(true); return; } // not live: whatever LTN Plays is showing, plus when we are next on
+  ltnNextShow(false);
+  ltnTunedLive = true; ltnTunedSig = ltnSig(ch);
   $("#tw").classList.add("on");
-  if (tr && tr.type === "clip") { $("#twp").innerHTML = '<iframe src="https://clips.twitch.tv/embed?clip=' + esc(tr.id) + '&parent=localhost&autoplay=true&muted=false" allow="autoplay; fullscreen" allowfullscreen></iframe>'; return; }
   try { await ltnTwitchLib(); } catch { return flash("TWITCH UNAVAILABLE"); }
   if (gen !== tuneGen) return;
   $("#twp").textContent = "";
-  if (tr && tr.type === "tv") { // a Twitch video: play it again when it ends, so the channel is never empty
-    twPlayer = new Twitch.Player("twp", { video: tr.id, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
-    twPlayer.addEventListener(Twitch.Player.ENDED, () => { try { twPlayer.seek(0); twPlayer.play(); } catch { /* player gone */ } });
-    twPlayer.addEventListener(Twitch.Player.READY, () => { try { twPlayer.play(); } catch { /* player gone */ } }); // start even if autoplay was held back
-    ytAudioSoon();
-    return;
-  }
   // the player only runs on a page whose host is in "parent"; the app serves itself from http://localhost for exactly this
   twPlayer = new Twitch.Player("twp", { channel: LTN.twitch, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
+  twPlayer.addEventListener(Twitch.Player.READY, () => { try { twPlayer.play(); } catch { /* player gone */ } });
   ytAudioSoon();
 }
 
 function ltnStop() {
+  ltnNextShow(false);
   clearInterval(ltnPageTimer); clearInterval(ltnRefreshTimer); clearInterval(ytListenTimer);
   ltnPageTimer = ltnRefreshTimer = ytListenTimer = null;
   twPlayer = null;
