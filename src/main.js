@@ -1,7 +1,7 @@
 // BackWhenTV for Windows: a window around the player page in renderer/, plus settings, a tray icon and an NDI output.
 // Keyboard and mouse only. The one job the shell does that a browser can't: Pluto's streams only answer app-like requests and send no CORS
 // headers, so for those hosts we send the same user agent the Android app uses and allow the player page to read the response.
-const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, screen } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
@@ -10,6 +10,20 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 const PLUTO_UA = "Mozilla/5.0 (Linux; Android 11; BackWhenTV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36";
 const PLUTO_HOST = /(^|\.)(jmp2\.uk|pluto\.tv|plutotv\.net|pluto\.tv\.s3\.amazonaws\.com|cloudfront\.net)$/i;
+
+/* ---------- log (app data folder, bwtv.log): what went wrong, in case something does ---------- */
+const logFile = () => path.join(app.getPath("userData"), "bwtv.log");
+function log(...a) {
+  try {
+    const line = new Date().toISOString() + " " + a.map((x) => (x && x.stack) || (typeof x === "string" ? x : JSON.stringify(x))).join(" ") + "\n";
+    fs.mkdirSync(path.dirname(logFile()), { recursive: true });
+    fs.appendFileSync(logFile(), line);
+  } catch { /* logging must never throw */ }
+}
+process.on("uncaughtException", (e) => log("uncaughtException", e));
+process.on("unhandledRejection", (e) => log("unhandledRejection", e));
+app.on("render-process-gone", (e, wc, d) => log("render-process-gone", d));
+app.on("child-process-gone", (e, d) => log("child-process-gone", d));
 
 /* ---------- settings (one small JSON file in the user's app data) ---------- */
 const DEFAULTS = {
@@ -67,6 +81,8 @@ function create() {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  win.webContents.on("console-message", (e, level, message, line, src) => { if (level >= 3 && !/CORS|net::ERR/.test(message)) log("window error:", message, String(src) + ":" + line); });
+  win.webContents.on("render-process-gone", (e, d) => log("window process gone", d));
   win.on("minimize", () => { if (S.minimizeToTray) win.hide(); });
   win.on("close", (e) => { if (S.closeToTray && !quitting) { e.preventDefault(); win.hide(); } });
   win.on("closed", () => { win = null; ndiStop(); });
@@ -91,6 +107,8 @@ function updateTray() {
 }
 
 app.whenReady().then(() => {
+  try { if (fs.statSync(logFile()).size > 512 * 1024) fs.unlinkSync(logFile()); } catch { /* no log yet */ }
+  log("start", app.getVersion(), "electron", process.versions.electron);
   loadSettings();
   const ses = session.defaultSession;
   ses.webRequest.onBeforeSendHeaders((d, cb) => {
@@ -116,85 +134,97 @@ app.whenReady().then(() => {
 // A hidden 1920x1080 window renders its own copy of the player and follows the visible window (channel, guide). Its video is sent as one NDI
 // source together with its own audio, so resizing, windowing or minimizing the visible window never changes what receivers see.
 // Needs the NDI runtime that ships inside the grandiose package; receivers see "<PC name> (<NDI name>)".
-let ndi = null; // { sender, grandiose, win, running, last, audioBusy }
+let ndi = null; // { sender, grandiose, win, running, last, pending, sending, lastPaint, timer, audioBusy }
 const NDI_FPS = 30, NDI_W = 1920, NDI_H = 1080;
+const ndiNow = () => BigInt(Date.now()) * 10000n; // NDI timecodes count 100 ns ticks
 async function ndiStart() {
   if (ndi || !win) return;
+  log("ndi: starting");
   let grandiose;
-  try { grandiose = require("@stagetimerio/grandiose"); } catch (e) { throw new Error("NDI library not available: " + e.message); }
+  try { grandiose = require("@stagetimerio/grandiose"); } catch (e) { log("ndi: library failed to load", e); throw new Error("NDI library not available: " + e.message); }
   // No NDI clock: frames go out the moment they are painted, stamped with that moment. Audio blocks are stamped the same way, so a receiver
   // can line the two up instead of guessing from arrival time.
   const sender = await grandiose.send({ name: S.ndiName || "BackWhenTV", clockVideo: false, clockAudio: false });
+  log("ndi: sender up", sender.sourcename());
+  // On a scaled desktop an offscreen window renders at (size x scale), so ask for 1920/scale to get exactly 1920 pixels out
+  const sf = (screen.getPrimaryDisplay() || {}).scaleFactor || 1;
   const nw = new BrowserWindow({
-    width: NDI_W, height: NDI_H, useContentSize: true, show: false, frame: false, backgroundColor: "#000000", title: "BackWhenTV NDI",
+    width: Math.round(NDI_W / sf), height: Math.round(NDI_H / sf), useContentSize: true, show: false, frame: false, backgroundColor: "#000000", title: "BackWhenTV NDI",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, webSecurity: false, backgroundThrottling: false, offscreen: true },
   });
-  const st = { sender, grandiose, win: nw, running: true, last: null, pending: null, sending: false, lastPaint: 0, timer: null, audioBusy: false };
+  const st = { sender, grandiose, win: nw, running: true, last: null, pending: null, sending: false, lastPaint: 0, timer: null, audioBusy: false, frames: 0 };
   ndi = st;
-  nw.webContents.setFrameRate(NDI_FPS);
-  nw.webContents.setAudioMuted(true); // the picture and sound go to NDI, not to the speakers
-  // render at exactly 1x so a scaled (HiDPI) desktop does not make us resize every frame
-  nw.webContents.enableDeviceEmulation({ screenPosition: "desktop", screenSize: { width: NDI_W, height: NDI_H }, viewPosition: { x: 0, y: 0 }, viewSize: { width: NDI_W, height: NDI_H }, deviceScaleFactor: 1, scale: 1 });
+  nw.webContents.on("render-process-gone", (e, d) => { log("ndi: hidden window process gone", d); ndiSet(false); });
+  nw.webContents.on("console-message", (e, level, message, line, src) => { if (level >= 3) log("ndi window error:", message, String(src) + ":" + line); });
+  try { nw.webContents.setFrameRate(NDI_FPS); } catch (e) { log("ndi: setFrameRate", e); }
+  try { nw.webContents.setAudioMuted(true); } catch (e) { log("ndi: setAudioMuted", e); } // the picture and sound go to NDI, not to the speakers
   nw.webContents.on("paint", (e, dirty, image) => {
-    let img = image;
-    const sz = img.getSize();
-    if (sz.width !== NDI_W || sz.height !== NDI_H) img = img.resize({ width: NDI_W, height: NDI_H, quality: "good" });
-    st.last = img.toBitmap(); // BGRA
-    st.lastPaint = Date.now();
-    st.pending = { data: st.last, tc: ndiNow() };
-    pump(st);
+    try {
+      let img = image;
+      const sz = img.getSize();
+      if (sz.width !== NDI_W || sz.height !== NDI_H) img = img.resize({ width: NDI_W, height: NDI_H, quality: "good" });
+      st.last = img.toBitmap(); // BGRA
+      st.lastPaint = Date.now();
+      st.pending = { data: st.last, tc: ndiNow() };
+      if (++st.frames === 1) log("ndi: first frame", sz.width + "x" + sz.height);
+      pump(st);
+    } catch (err) { log("ndi: paint", err); }
   });
-  nw.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { ndi: "1" } });
+  nw.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { ndi: "1" } }).catch((err) => log("ndi: load failed", err));
   // a static screen paints nothing, so repeat the last picture about 30 times a second
   st.timer = setInterval(() => {
     if (st.last && !st.sending && Date.now() - st.lastPaint > 80) { st.pending = { data: st.last, tc: ndiNow() }; pump(st); }
   }, Math.round(1000 / NDI_FPS));
   return sender.sourcename();
 }
-const ndiNow = () => BigInt(Date.now()) * 10000n; // NDI timecodes count 100 ns ticks
 // send the newest picture; if one is already on its way, the next paint replaces anything still waiting
 async function pump(st) {
   if (st.sending) return;
   st.sending = true;
-  while (st.pending && st.running) {
-    const f = st.pending; st.pending = null;
-    try { await st.sender.video({ xres: NDI_W, yres: NDI_H, frameRateN: NDI_FPS * 1000, frameRateD: 1000, fourCC: st.grandiose.FOURCC_BGRA, pictureAspectRatio: NDI_W / NDI_H, frameFormatType: st.grandiose.FORMAT_TYPE_PROGRESSIVE, lineStrideBytes: NDI_W * 4, data: f.data, timecode: f.tc }); } catch { /* receiver gone */ }
-  }
-  st.sending = false;
+  try {
+    while (st.pending && st.running) {
+      const f = st.pending; st.pending = null;
+      try { await st.sender.video({ xres: NDI_W, yres: NDI_H, frameRateN: NDI_FPS * 1000, frameRateD: 1000, fourCC: st.grandiose.FOURCC_BGRA, pictureAspectRatio: NDI_W / NDI_H, frameFormatType: st.grandiose.FORMAT_TYPE_PROGRESSIVE, lineStrideBytes: NDI_W * 4, data: f.data, timecode: f.tc }); }
+      catch (err) { if (!st.videoErrLogged) { st.videoErrLogged = true; log("ndi: video send failed", err); } }
+    }
+  } finally { st.sending = false; }
 }
 async function ndiStop() {
   if (!ndi) return;
   const st = ndi; ndi = null; st.running = false; clearInterval(st.timer);
-  try { if (!st.win.isDestroyed()) st.win.destroy(); } catch { /* gone */ }
-  try { await st.sender.destroy(); } catch { /* ignore */ }
+  log("ndi: stopping");
+  try { if (!st.win.isDestroyed()) st.win.destroy(); } catch (e) { log("ndi: window destroy", e); }
+  try { await st.sender.destroy(); } catch (e) { log("ndi: sender destroy", e); }
 }
 async function ndiSet(on) {
   let r;
   try {
     if (on) { const name = await ndiStart(); r = { on: true, name }; }
     else { await ndiStop(); r = { on: false }; }
-  } catch (e) { await ndiStop(); r = { on: false, error: String(e.message || e) }; }
-  if (win && !win.isDestroyed()) win.webContents.send("ndi-status", r);
-  updateTray();
+  } catch (e) { log("ndi: error", e); await ndiStop(); r = { on: false, error: String(e.message || e) }; }
+  try { if (win && !win.isDestroyed()) win.webContents.send("ndi-status", r); } catch (e) { log("ndi: status send", e); }
+  try { updateTray(); } catch (e) { log("ndi: tray", e); }
   return r;
 }
 ipcMain.handle("ndi-toggle", () => ndiSet(!ndi));
 // the visible window reports what it is showing; the hidden one copies it
-ipcMain.on("ndi-state", (e, state) => { if (ndi && !ndi.win.isDestroyed()) ndi.win.webContents.send("ndi-sync", state); });
-ipcMain.on("ndi-ready", () => { if (win) win.webContents.send("ndi-resend"); });
+ipcMain.on("ndi-state", (e, state) => { try { if (ndi && !ndi.win.isDestroyed()) ndi.win.webContents.send("ndi-sync", state); } catch (err) { log("ndi: sync", err); } });
+ipcMain.on("ndi-ready", () => { try { if (win) win.webContents.send("ndi-resend"); } catch (err) { log("ndi: resend", err); } });
 // planar 32-bit float stereo blocks from the hidden window's audio graph
 ipcMain.on("ndi-audio", (e, payload) => {
   const st = ndi;
   if (!st || st.audioBusy || !payload) return;
-  let buf = Buffer.from(payload.data.buffer, payload.data.byteOffset, payload.data.byteLength);
-  if (S.muteNdi) buf = Buffer.alloc(buf.length); // keep the stream alive but silent
-  const samples = payload.samples;
-  st.audioBusy = true;
-  // the block ended about now, so it began one block-length ago; the user's offset trims any remaining mismatch
-  const blockMs = Math.round(samples / payload.sampleRate * 1000);
-  const tc = ndiNow() - BigInt(blockMs) * 10000n + BigInt(Math.round(S.ndiAudioOffset || 0)) * 10000n;
-  st.sender.audio({ sampleRate: payload.sampleRate, noChannels: 2, noSamples: samples, channelStrideBytes: samples * 4, fourCC: st.grandiose.FOURCC_FLTp, data: buf, timecode: tc })
-    .catch(() => {}).finally(() => { st.audioBusy = false; });
+  try {
+    let buf = Buffer.from(payload.data.buffer, payload.data.byteOffset, payload.data.byteLength);
+    if (S.muteNdi) buf = Buffer.alloc(buf.length); // keep the stream alive but silent
+    const samples = payload.samples;
+    // the block ended about now, so it began one block-length ago; the user's offset trims any remaining mismatch
+    const blockMs = Math.round(samples / payload.sampleRate * 1000);
+    const tc = ndiNow() - BigInt(blockMs) * 10000n + BigInt(Math.round(S.ndiAudioOffset || 0)) * 10000n;
+    st.audioBusy = true;
+    st.sender.audio({ sampleRate: payload.sampleRate, noChannels: 2, noSamples: samples, channelStrideBytes: samples * 4, fourCC: st.grandiose.FOURCC_FLTp, data: buf, timecode: tc })
+      .catch((err) => { if (!st.audioErrLogged) { st.audioErrLogged = true; log("ndi: audio send failed", err); } }).finally(() => { st.audioBusy = false; });
+  } catch (err) { st.audioBusy = false; log("ndi: audio", err); }
 });
 app.on("before-quit", () => { quitting = true; ndiStop(); });
 
