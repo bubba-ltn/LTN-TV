@@ -12,5 +12,5 @@ contextBridge.exposeInMainWorld("bw", {
   ndiReady: () => ipcRenderer.send("ndi-ready"),
   onNdiSync: (cb) => ipcRenderer.on("ndi-sync", (e, state) => cb(state)),
   onNdiResend: (cb) => ipcRenderer.on("ndi-resend", () => cb()),
-  version: "1.10.2",
+  version: "2.0.0",
 });

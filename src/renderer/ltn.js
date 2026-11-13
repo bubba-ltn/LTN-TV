@@ -1,10 +1,11 @@
 // Love Thy Nerd channels, added to the lineup on this PC only:
 //   LTN LATEST      rotating pages: who is live, Twitch, the website's newest posts, new YouTube videos, every show's latest
-//   LTN TWITCH      the Twitch stream when live, otherwise the trailer (or Twitch's own offline screen)
+//   LTN PLAYS GAMES the Twitch stream when live, otherwise the LTN Plays Games YouTube channel on shuffle, with a note about the next stream
 //   LTN DAILY BIBLE the LTN Daily Audio Bible playlist, played through in order
 //   one channel per YouTube show: always on, joined mid-programme like a TV channel, and the live stream whenever the show is live
 // Loaded before player.js; everything here is used at run time, after player.js has defined the helpers ($, channels, flash, clock, ...).
 const LTN = {
+  ltnOnly: true, // LTN TV: only the Love Thy Nerd channels are in the lineup (false brings back the BackWhenTV channels)
   numLatest: 158, numTwitch: 159, numBible: 160, numShows: 161, // moved up automatically if the lineup already uses them
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
@@ -19,19 +20,19 @@ const LTN = {
   pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
   // one channel each, in channel-number order (IDs from each channel page's canonical link)
   shows: [
-    { id: "UC8eB_7RaI0sKhVbo8abjhEw", name: "LTN PLAYS GAMES", info: "LTN Plays Games, @LTNPlaysGames" },
-    { id: "UCybQk4iV2Ax6cMLWsIO-sUw", name: "LOVE THY NERD", info: "@LoveThyNerd" },
-    { id: "UCIdJqzOfkA4IUHC8RMM7SnA", name: "NCMU PODCAST", info: "Nerd Culture Ministry Underground, @NCMUpodcastLTN" },
-    { id: "UC5FybvYjKGsMN_7f8M0YUMQ", name: "NERD HISTORY", info: "@NerdHistoryLTN" },
-    { id: "UCXX-ABXIGaUW3_NmY7LOQGg", name: "RPG RUNDOWN", info: "The RPG Rundown, @TheRPGRundownLTN" },
-    { id: "UC6yLOcIFpviSxE9c6d2Xpqg", name: "THE PULL LIST", info: "@ThePullListLTN" },
-    { id: "UCiGN0i7cRwTLLv51DDMaM2w", name: "SAVE & CONTINUE", info: "Save & Continue Podcast, @SaveAndContinueLTN" },
-    { id: "UCJ17-LAbqJhlWKr0yw2Jbzg", name: "CHRISTIAN BOARD GAMERS", info: "The Christian Board Gamers Podcast, @ChristianBoardGamersLTN" },
-    { id: "UCjJEmqOToVh-jYDJePEBcvQ", name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
-    { id: "UCda5tLEdzlfm3FtLi4rLQyA", name: "SATELLITE STORIES", info: "@SatelliteStoriesLTN" },
-    { id: "UCTDE0NRt9QqeUByTE6WM0kQ", name: "TWO WORDS", info: "Two Words Podcast, @TwoWordsLTN" },
-    { id: "UCT67V7nvgWuygXAORpiU7iA", name: "CHURCH NERDS", info: "@ChurchNerdsLTN" },
-    { id: "UCXhCjTVjYof3F1tUfmem5hw", name: "BIBLE THUMP", info: "@BibleThumpLTN" },
+    { id: "UC8eB_7RaI0sKhVbo8abjhEw", name: "LTN PLAYS GAMES", info: "LTN Plays Games, @LTNPlaysGames", hidden: true }, // not a channel of its own: LTN PLAYS GAMES (159) plays it while Twitch is offline
+    { id: "UCybQk4iV2Ax6cMLWsIO-sUw", num: 162, name: "LOVE THY NERD", info: "@LoveThyNerd" },
+    { id: "UCIdJqzOfkA4IUHC8RMM7SnA", num: 163, name: "NCMU PODCAST", info: "Nerd Culture Ministry Underground, @NCMUpodcastLTN" },
+    { id: "UC5FybvYjKGsMN_7f8M0YUMQ", num: 164, name: "NERD HISTORY", info: "@NerdHistoryLTN" },
+    { id: "UCXX-ABXIGaUW3_NmY7LOQGg", num: 165, name: "RPG RUNDOWN", info: "The RPG Rundown, @TheRPGRundownLTN" },
+    { id: "UC6yLOcIFpviSxE9c6d2Xpqg", num: 166, name: "THE PULL LIST", info: "@ThePullListLTN" },
+    { id: "UCiGN0i7cRwTLLv51DDMaM2w", num: 167, name: "SAVE & CONTINUE", info: "Save & Continue Podcast, @SaveAndContinueLTN" },
+    { id: "UCJ17-LAbqJhlWKr0yw2Jbzg", num: 168, name: "CHRISTIAN BOARD GAMERS", info: "The Christian Board Gamers Podcast, @ChristianBoardGamersLTN" },
+    { id: "UCjJEmqOToVh-jYDJePEBcvQ", num: 169, name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
+    { id: "UCda5tLEdzlfm3FtLi4rLQyA", num: 170, name: "SATELLITE STORIES", info: "@SatelliteStoriesLTN" },
+    { id: "UCTDE0NRt9QqeUByTE6WM0kQ", num: 171, name: "TWO WORDS", info: "Two Words Podcast, @TwoWordsLTN" },
+    { id: "UCT67V7nvgWuygXAORpiU7iA", num: 172, name: "CHURCH NERDS", info: "@ChurchNerdsLTN" },
+    { id: "UCXhCjTVjYof3F1tUfmem5hw", num: 173, name: "BIBLE THUMP", info: "@BibleThumpLTN" },
   ],
 };
 
@@ -39,12 +40,12 @@ function injectLtnChannels() {
   const free = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
   const add = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
   add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN LATEST", kind: "ltn", blurb: "Who is live, and the newest from Love Thy Nerd: Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
-  add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN TWITCH", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, the trailer when we are not." });
+  add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN PLAYS GAMES", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, and the LTN Plays Games channel on shuffle when we are not." });
   add({ id: "ltn-bible", num: free(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
-  let n = LTN.numShows;
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   for (const s of LTN.shows) {
-    n = free(n);
-    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube: full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
+    if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
+    add(mk(s, free(s.num)));
   }
   channels.sort((a, b) => a.num - b.num);
 }
@@ -52,7 +53,8 @@ function injectLtnChannels() {
 /* ---------- shared state ---------- */
 let ltnData = null, ltnAt = 0, ltnPage = 0, ltnPageTimer = null, ltnRefreshTimer = null;
 let ltnLiveMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
-const ltnMirror = () => channels.find((x) => x.ytid === LTN.playsId); // the LTN Plays channel
+let ltnPlaysCh = null; // the LTN Plays Games YouTube channel: a hidden source, not in the lineup
+const ltnMirror = () => ltnPlaysCh;
 // what is really playing: for LTN TWITCH while offline, that is the LTN Plays channel
 const ltnPlayCh = () => { const ch = channels[tuned]; return ch && ch.kind === "twitch" && !isLive(ch) ? ltnMirror() || ch : ch; };
 // everything that decides WHAT plays on a channel; when it changes the channel is re-tuned
@@ -186,7 +188,7 @@ function ltnStart() { // called once the lineup is known (visible window only: t
 function ytNowTitle() { return (ytInfo.videoData && ytInfo.videoData.title) || ""; }
 function ltnNow(ch) {
   const live = isLive(ch);
-  if (ch.kind === "twitch") return live ? { t: "\u25CF LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: (channels[tuned] === ch && ytNowTitle()) || "LTN Plays", n: ltnNextText() || "twitch.tv/" + LTN.twitch };
+  if (ch.kind === "twitch") return live ? { t: "\u25CF LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: (channels[tuned] === ch && ytNowTitle()) || "LTN Plays Games", n: ltnNextText() || "twitch.tv/" + LTN.twitch };
   if (ch.kind === "yt") {
     if (live) return { t: "● LIVE: " + (ltnLiveMap[ch.ytid].title || ch.name), n: "" };
     const lst = ch.ytid && ch.yt.sched && ltnLists[ch.ytid];
@@ -359,7 +361,7 @@ async function ltnGetSchedule(ch) {
   return ltnListLoading[id];
 }
 async function ltnWarm() { // load every channel's list in the background (one at a time) so the guide can name what is on
-  for (const c of channels.filter((x) => x.kind === "yt" && x.yt && x.yt.sched)) {
+  for (const c of [...channels.filter((x) => x.kind === "yt" && x.yt && x.yt.sched), ...(ltnPlaysCh ? [ltnPlaysCh] : [])]) {
     try { await ltnGetSchedule(c); if (mode === "guide") renderGuide(); } catch { /* next one */ }
     await new Promise((r) => setTimeout(r, 3500));
   }

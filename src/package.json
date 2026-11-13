@@ -1,10 +1,10 @@
 {
-  "name": "backwhentv-windows",
-  "productName": "BackWhenTV",
-  "version": "1.10.2",
-  "description": "BackWhenTV for Windows: cable TV, the way you remember it.",
+  "name": "ltn-tv",
+  "productName": "LTN TV",
+  "version": "2.0.0",
+  "description": "LTN TV: Love Thy Nerd, always on.",
   "main": "main.js",
-  "author": "BackWhenTV",
+  "author": "Love Thy Nerd",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -19,8 +19,8 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "stream.backwhen.tv",
-    "productName": "BackWhenTV",
+    "appId": "tv.lovethynerd.ltntv",
+    "productName": "LTN TV",
     "icon": "icon.png",
     "directories": {
       "output": "dist"
@@ -42,19 +42,19 @@
       ]
     },
     "nsis": {
-      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "artifactName": "LTN-TV-Setup-${version}.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "BackWhenTV",
+      "shortcutName": "LTN TV",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false
     },
     "portable": {
-      "artifactName": "${productName}-Portable-${version}.${ext}"
+      "artifactName": "LTN-TV-Portable-${version}.${ext}"
     },
     "asarUnpack": [
       "node_modules/@stagetimerio/grandiose/dist/**"
