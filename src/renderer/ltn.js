@@ -228,7 +228,7 @@ async function playLtn(ch, gen) {
   ltnPage = 0; ltnDraw();
   if (!NDI_MODE && LTN.music) { // the music: always playing, sound only
     const m = $("#ytm");
-    m.onload = () => { setTimeout(ytAudio, 800); setTimeout(ytAudio, 2500); setTimeout(ytAudio, 6000); };
+    m.onload = () => ytAudioSoon();
     m.src = ytEmbed(LTN.music + "?playlist=" + LTN.music);
   }
   const reload = async (force) => { try { await ltnLoad(force); } catch { /* keep what we have */ } if (gen === tuneGen) ltnDraw(); };
@@ -249,22 +249,25 @@ function ytmCmd(func, args) {
   const f = $("#ytm");
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");
 }
-function ytAudio() { // follow the window's volume and mute (the hidden NDI copy is always silent here: YouTube's player cannot be captured for NDI audio)
-  const quiet = NDI_MODE || S.muteWindow, vol = Math.min(1, Math.max(0, S.volume));
-  ytmCmd(quiet ? "mute" : "unMute"); ytmCmd("setVolume", [Math.round(vol * 100)]);
-  if (/youtube/.test(($("#ytf").getAttribute("src")) || "")) { ytCmd(quiet ? "mute" : "unMute"); ytCmd("setVolume", [Math.round(vol * 100)]); }
-  if (twPlayer) { try { twPlayer.setMuted(quiet); twPlayer.setVolume(vol); } catch { /* not ready yet */ } }
+let ytSent = {}; // what each player was last told
+function ytAudio(force) { // follow the window's volume and mute (the hidden NDI copy is always silent here: YouTube's player cannot be captured for NDI audio)
+  const quiet = !!(NDI_MODE || S.muteWindow), vol = Math.round(Math.min(1, Math.max(0, S.volume)) * 100), key = quiet + ":" + vol;
+  const tell = (name, ready, cmd) => { if (!ready || (!force && ytSent[name] === key)) return; ytSent[name] = key; cmd(quiet ? "mute" : "unMute"); cmd("setVolume", [vol]); };
+  tell("ytm", /youtube/.test($("#ytm").getAttribute("src") || ""), ytmCmd);
+  tell("ytf", /youtube/.test($("#ytf").getAttribute("src") || ""), ytCmd);
+  tell("tw", !!twPlayer, (func, args) => { try { if (func === "setVolume") twPlayer.setVolume(args[0] / 100); else twPlayer.setMuted(func === "mute"); } catch { /* not ready yet */ } });
 }
+const ytAudioSoon = () => { ytSent = {}; for (const ms of [1200, 3500, 8000]) setTimeout(() => ytAudio(true), ms); }; // a freshly loaded player needs telling a few times until it is ready
 function ytShow(src, gen) {
   const f = $("#ytf");
   $("#yt").classList.add("on");
   f.onload = () => {
     let n = 0;
     clearInterval(ytListenTimer);
-    ytListenTimer = setInterval(() => { // keeps asking until the player starts reporting what it is playing
-      if (gen !== tuneGen || ++n > 150) return clearInterval(ytListenTimer);
+    ytAudioSoon();
+    ytListenTimer = setInterval(() => { // asks the player to report what it is playing, until it does
+      if (gen !== tuneGen || ++n > 60 || ytInfo.currentTime != null) return clearInterval(ytListenTimer);
       try { f.contentWindow.postMessage(JSON.stringify({ event: "listening", id: 1, channel: "widget" }), "*"); } catch { /* frame gone */ }
-      ytAudio();
     }, 1000);
   };
   f.src = src;
@@ -304,10 +307,13 @@ addEventListener("message", (e) => {
 });
 // the visible window reports where the playlist is; the hidden NDI copy follows it
 const ytSync = () => (channels[tuned] && channels[tuned].kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0 } : undefined);
+let ytFollowAt = 0;
 function ytFollow(y) {
   if (!y || !channels[tuned] || channels[tuned].kind !== "yt" || ltnTunedLive) return;
-  if (ytInfo.playlistIndex !== y.idx) ytCmd("playVideoAt", [y.idx]);
-  else if (Math.abs((ytInfo.currentTime || 0) - y.t) > 6) ytCmd("seekTo", [y.t, true]);
+  if (ytInfo.playlistIndex == null || ytInfo.currentTime == null) return; // the copy has not reported yet: do not guess
+  if (Date.now() - ytFollowAt < 30000) return; // at most one correction every 30 s
+  if (ytInfo.playlistIndex !== y.idx) { ytFollowAt = Date.now(); ytCmd("playVideoAt", [y.idx]); }
+  else if (Math.abs(ytInfo.currentTime - y.t) > 15) { ytFollowAt = Date.now(); ytCmd("seekTo", [y.t, true]); }
 }
 
 /* ---------- Twitch: the live stream, or the trailer while offline ---------- */
@@ -325,7 +331,7 @@ async function playTwitch(ch, gen) {
   $("#twp").textContent = "";
   // the player only runs on a page whose host is in "parent"; the app serves itself from http://localhost for exactly this
   twPlayer = new Twitch.Player("twp", { channel: LTN.twitch, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
-  setTimeout(ytAudio, 1500); setTimeout(ytAudio, 4000);
+  ytAudioSoon();
 }
 
 function ltnStop() {
