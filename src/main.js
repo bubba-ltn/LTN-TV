@@ -18,6 +18,7 @@ const DEFAULTS = {
   muteNdi: false,         // silence the NDI audio (independent of the window)
   ndiOnStart: false,      // start NDI output when the app starts
   ndiName: "BackWhenTV",  // NDI source name (your PC name is added in front)
+  ndiAudioOffset: 0,      // milliseconds: positive delays the NDI audio against the picture, negative advances it
   startFullscreen: true,  // open fullscreen, or in a normal window
   minimizeToTray: false,  // minimizing hides the window to the tray icon
   closeToTray: false,     // the close button hides to the tray instead of quitting
@@ -121,13 +122,14 @@ async function ndiStart() {
   if (ndi || !win) return;
   let grandiose;
   try { grandiose = require("@stagetimerio/grandiose"); } catch (e) { throw new Error("NDI library not available: " + e.message); }
-  // NDI paces the video itself (clockVideo), so frames leave at a steady 30 fps instead of bunching up behind a timer
-  const sender = await grandiose.send({ name: S.ndiName || "BackWhenTV", clockVideo: true, clockAudio: false });
+  // No NDI clock: frames go out the moment they are painted, stamped with that moment. Audio blocks are stamped the same way, so a receiver
+  // can line the two up instead of guessing from arrival time.
+  const sender = await grandiose.send({ name: S.ndiName || "BackWhenTV", clockVideo: false, clockAudio: false });
   const nw = new BrowserWindow({
     width: NDI_W, height: NDI_H, useContentSize: true, show: false, frame: false, backgroundColor: "#000000", title: "BackWhenTV NDI",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, webSecurity: false, backgroundThrottling: false, offscreen: true },
   });
-  const st = { sender, grandiose, win: nw, running: true, last: null, audioBusy: false };
+  const st = { sender, grandiose, win: nw, running: true, last: null, pending: null, sending: false, lastPaint: 0, timer: null, audioBusy: false };
   ndi = st;
   nw.webContents.setFrameRate(NDI_FPS);
   nw.webContents.setAudioMuted(true); // the picture and sound go to NDI, not to the speakers
@@ -137,23 +139,32 @@ async function ndiStart() {
     let img = image;
     const sz = img.getSize();
     if (sz.width !== NDI_W || sz.height !== NDI_H) img = img.resize({ width: NDI_W, height: NDI_H, quality: "good" });
-    st.last = img.toBitmap(); // BGRA, always the newest frame
+    st.last = img.toBitmap(); // BGRA
+    st.lastPaint = Date.now();
+    st.pending = { data: st.last, tc: ndiNow() };
+    pump(st);
   });
   nw.loadFile(path.join(__dirname, "renderer", "index.html"), { query: { ndi: "1" } });
-  // one send loop: each call returns when NDI wants the next frame, and always carries the newest picture (a static screen just repeats)
-  (async () => {
-    while (st.running) {
-      if (!st.last) { await new Promise((r) => setTimeout(r, 20)); continue; }
-      try {
-        await sender.video({ xres: NDI_W, yres: NDI_H, frameRateN: NDI_FPS * 1000, frameRateD: 1000, fourCC: grandiose.FOURCC_BGRA, pictureAspectRatio: NDI_W / NDI_H, frameFormatType: grandiose.FORMAT_TYPE_PROGRESSIVE, lineStrideBytes: NDI_W * 4, data: st.last });
-      } catch { await new Promise((r) => setTimeout(r, 50)); }
-    }
-  })();
+  // a static screen paints nothing, so repeat the last picture about 30 times a second
+  st.timer = setInterval(() => {
+    if (st.last && !st.sending && Date.now() - st.lastPaint > 80) { st.pending = { data: st.last, tc: ndiNow() }; pump(st); }
+  }, Math.round(1000 / NDI_FPS));
   return sender.sourcename();
+}
+const ndiNow = () => BigInt(Date.now()) * 10000n; // NDI timecodes count 100 ns ticks
+// send the newest picture; if one is already on its way, the next paint replaces anything still waiting
+async function pump(st) {
+  if (st.sending) return;
+  st.sending = true;
+  while (st.pending && st.running) {
+    const f = st.pending; st.pending = null;
+    try { await st.sender.video({ xres: NDI_W, yres: NDI_H, frameRateN: NDI_FPS * 1000, frameRateD: 1000, fourCC: st.grandiose.FOURCC_BGRA, pictureAspectRatio: NDI_W / NDI_H, frameFormatType: st.grandiose.FORMAT_TYPE_PROGRESSIVE, lineStrideBytes: NDI_W * 4, data: f.data, timecode: f.tc }); } catch { /* receiver gone */ }
+  }
+  st.sending = false;
 }
 async function ndiStop() {
   if (!ndi) return;
-  const st = ndi; ndi = null; st.running = false;
+  const st = ndi; ndi = null; st.running = false; clearInterval(st.timer);
   try { if (!st.win.isDestroyed()) st.win.destroy(); } catch { /* gone */ }
   try { await st.sender.destroy(); } catch { /* ignore */ }
 }
@@ -179,7 +190,10 @@ ipcMain.on("ndi-audio", (e, payload) => {
   if (S.muteNdi) buf = Buffer.alloc(buf.length); // keep the stream alive but silent
   const samples = payload.samples;
   st.audioBusy = true;
-  st.sender.audio({ sampleRate: payload.sampleRate, noChannels: 2, noSamples: samples, channelStrideBytes: samples * 4, fourCC: st.grandiose.FOURCC_FLTp, data: buf })
+  // the block ended about now, so it began one block-length ago; the user's offset trims any remaining mismatch
+  const blockMs = Math.round(samples / payload.sampleRate * 1000);
+  const tc = ndiNow() - BigInt(blockMs) * 10000n + BigInt(Math.round(S.ndiAudioOffset || 0)) * 10000n;
+  st.sender.audio({ sampleRate: payload.sampleRate, noChannels: 2, noSamples: samples, channelStrideBytes: samples * 4, fourCC: st.grandiose.FOURCC_FLTp, data: buf, timecode: tc })
     .catch(() => {}).finally(() => { st.audioBusy = false; });
 });
 app.on("before-quit", () => { quitting = true; ndiStop(); });

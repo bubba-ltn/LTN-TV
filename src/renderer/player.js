@@ -11,7 +11,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -704,6 +704,7 @@ const settingRows = () => [
   { l: "NDI OUTPUT", v: () => onoff(ndiOn), tog: () => toggleNdi() },
   { l: "MUTE NDI AUDIO", v: () => onoff(S.muteNdi), tog: () => setS({ muteNdi: !S.muteNdi }) },
   { l: "START NDI WITH THE APP", v: () => onoff(S.ndiOnStart), tog: () => setS({ ndiOnStart: !S.ndiOnStart }) },
+  { l: "NDI AUDIO OFFSET (MS, + = LATER)", v: () => (S.ndiAudioOffset > 0 ? "+" : "") + S.ndiAudioOffset, adj: (d) => setS({ ndiAudioOffset: Math.max(-1000, Math.min(1000, (S.ndiAudioOffset || 0) + d * 10)) }) },
   { l: "NDI SOURCE NAME", v: () => S.ndiName, edit: { init: () => S.ndiName, max: 32, set: (t) => setS({ ndiName: t.trim() || "BackWhenTV" }) } },
   { l: "START FULLSCREEN (NEXT LAUNCH)", v: () => onoff(S.startFullscreen), tog: () => setS({ startFullscreen: !S.startFullscreen }) },
   { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
