@@ -53,6 +53,18 @@
   .blk.live { background: rgba(150,158,176,.88); }
   .blk.cont { padding-left: 1.6vw; }
   .blk.sel { background: #f2f3f7; color: #111; box-shadow: 0 0 0 3px var(--orange); z-index: 2; }
+  .gch.fav { box-shadow: inset 0 0 0 2px var(--yellow); }
+  .gch.fav b::after { content: " ★"; color: var(--yellow); font-size: 2vh; }
+  #settings { display: none; flex-direction: column; padding: 4vh 5vw; gap: 1.4vh; pointer-events: auto; background: rgba(8, 14, 70, .96); }
+  #settings.on { display: flex; }
+  #shead { display: flex; justify-content: space-between; align-items: baseline; font-size: 4.4vh; font-weight: 900; color: var(--yellow); border-bottom: 4px solid var(--orange); padding-bottom: 1vh; }
+  #shead span:last-child { font-size: 2.2vh; color: var(--orange); }
+  #srows { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .8vh; overflow: hidden; }
+  .srow { display: grid; grid-template-columns: 1fr 1fr; align-items: center; height: 5.4vh; flex: none; padding: 0 1.4vw; background: #1a2fa0; font-size: 2.6vh; font-weight: 700; cursor: pointer; border-left: 6px solid transparent; }
+  .srow.sel { background: var(--yellow); color: #111; border-left-color: var(--orange); }
+  .srow .sv { text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srow .sv input { width: 100%; font: inherit; text-align: right; background: #fff; color: #000; border: 0; padding: .3vh .6vw; outline: 3px solid var(--orange); }
+  #shelp { text-align: center; color: var(--orange); font-size: 2vh; font-weight: 700; letter-spacing: .04em; }
   #ghelp { flex: none; text-align: center; color: #cfd6ee; font-size: 1.8vh; font-weight: 700; letter-spacing: .04em; }
   #digits { right: 4vw; top: 4vh; left: auto; bottom: auto; width: auto; height: auto; font-size: 11vh; font-weight: 900; color: var(--yellow); text-shadow: 4px 4px 0 #000; display: none; }
   #msg { display: none; align-items: center; justify-content: center; font-size: 7vh; font-weight: 900; text-shadow: 4px 4px 0 #000; text-align: center; }
@@ -90,10 +102,11 @@
   </div>
   <div id="gtimes"><span id="gclock"></span><div id="gticks"></div></div>
   <div id="grows"></div>
-  <div id="ghelp">ARROWS MOVE &nbsp; PGUP/PGDN PAGE &nbsp; N NOW &nbsp; 0-9 GO TO &nbsp; ENTER WATCH &nbsp; D NDI &nbsp; G/ESC CLOSE &nbsp; F FULLSCREEN</div>
+  <div id="ghelp">ARROWS MOVE &nbsp; PGUP/PGDN PAGE &nbsp; N NOW &nbsp; 0-9 GO TO &nbsp; ENTER WATCH &nbsp; H FAVORITE &nbsp; V FAVORITES &nbsp; D NDI &nbsp; S SETTINGS &nbsp; G/ESC CLOSE &nbsp; F FULLSCREEN</div>
 </div>
+<div class="layer" id="settings"><div id="shead"><span>SETTINGS</span><span id="sver"></span></div><div id="srows"></div><div id="shelp"></div></div>
 <div class="layer" id="digits"></div>
-<div class="layer" id="start"><h1>BackWhenTV</h1><p>Cable TV, the way you remember it.</p><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; Esc = back</p></div>
+<div class="layer" id="start"><h1>BackWhenTV</h1><p>Cable TV, the way you remember it.</p><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; S = settings &middot; Esc = back</p></div>
 
 <script src="../node_modules/hls.js/dist/hls.min.js"></script>
 <script src="player.js"></script>

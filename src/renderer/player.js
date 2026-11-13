@@ -10,6 +10,51 @@ let tuned = 0, mode = "tv", tuneGen = 0, started = false, hls = null, wxTimer = 
 const totals = {};
 const bad = new Set();
 
+/* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
+let S = { volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+function setS(p) {
+  Object.assign(S, p);
+  if (window.bw && window.bw.setSettings) window.bw.setSettings(p);
+  else { try { localStorage.setItem("bw-settings", JSON.stringify(S)); } catch { /* private mode */ } }
+  applyS();
+}
+function applyS() {
+  const vol = NDI_MODE ? 1 : clamp01(S.volume);
+  v.volume = vol; v2.volume = vol;
+  muted = NDI_MODE ? false : !!S.muteWindow; // the speakers; NDI audio has its own mute in the main process
+  v.muted = muted || swapActive; v2.muted = muted;
+  if (mode === "guide") renderGuide();
+  if (settingsOpen) renderSettings();
+}
+async function loadS() {
+  try {
+    if (window.bw && window.bw.getSettings) S = { ...S, ...(await window.bw.getSettings()) };
+    else S = { ...S, ...JSON.parse(localStorage.getItem("bw-settings") || "{}") };
+  } catch { /* defaults */ }
+  if (window.bw && window.bw.onSettings) window.bw.onSettings((s) => { S = { ...S, ...s }; applyS(); });
+  applyS();
+}
+const isFav = (id) => S.favorites.includes(id);
+function toggleFav(id) {
+  if (!id) return;
+  const on = !isFav(id);
+  setS({ favorites: on ? [...S.favorites, id] : S.favorites.filter((x) => x !== id) });
+  flash(on ? "★ ADDED TO FAVORITES" : "REMOVED FROM FAVORITES");
+}
+// channel indexes the guide and channel up/down move through: everything, or only favorites when that is switched on and any exist
+function chList() {
+  const all = channels.map((c, i) => i);
+  if (!S.favOnly) return all;
+  const f = all.filter((i) => isFav(channels[i].id));
+  return f.length ? f : all;
+}
+function surf(d) {
+  const list = chList(), p = list.indexOf(tuned);
+  if (p < 0) { const cand = d > 0 ? list.find((i) => i > tuned) : [...list].reverse().find((i) => i < tuned); return tune(cand ?? (d > 0 ? list[0] : list[list.length - 1])); } // current channel is not a favorite: nearest one
+  tune(list[(p + d + list.length) % list.length]);
+}
+
 const clock = (ms) => { const d = new Date(ms); let h = d.getHours(); const m = d.getMinutes(); const ap = h >= 12 ? "P" : "A"; h = h % 12 || 12; return h + ":" + String(m).padStart(2, "0") + ap; };
 const jget = (path) => fetch(BASE + path, { cache: "no-store" }).then((r) => { if (!r.ok) throw new Error(path + " " + r.status); return r.json(); });
 
@@ -47,6 +92,7 @@ function nowLine(ch, nowSec) {
 }
 
 async function boot() {
+  await loadS();
   const [lu, all] = await Promise.all([jget("/api/lineup"), jget("/api/schedules?pods=1")]);
   anchor = all.anchor;
   schedules = all.schedules;
@@ -54,7 +100,9 @@ async function boot() {
   jget("/api/epg").then((e) => { epg = e.programs || {}; if (mode === "guide") renderGuide(); }).catch(() => {});
   loadClips();
   const last = localStorage.getItem("bw-last");
-  tuned = Math.max(0, channels.findIndex((c) => c.id === last));
+  let ti = S.startChannel ? channels.findIndex((c) => c.num === S.startChannel) : -1;
+  if (ti < 0) ti = channels.findIndex((c) => c.id === last);
+  tuned = Math.max(0, ti);
   $("#start .go").textContent = "PRESS ANY KEY OR CLICK TO TUNE IN";
   renderGuide();
 }
@@ -221,13 +269,26 @@ function playPod(ch, gen, slot) {
 
 /* ---------- weather channel: our own screens over the smooth-jazz audio ---------- */
 let wxData = null, wxExtra = null, wxPage = 0;
+let wxLoc = null; // the ZIP code's coordinates, looked up once
+async function wxQuery() {
+  if (S.wxMode !== "zip" || !/^\d{5}$/.test(S.wxZip)) return "";
+  if (!wxLoc || wxLoc.zip !== S.wxZip) {
+    const r = await fetch("https://api.zippopotam.us/us/" + S.wxZip);
+    if (!r.ok) throw new Error("zip not found");
+    const p = (await r.json()).places[0];
+    wxLoc = { zip: S.wxZip, lat: p.latitude, lon: p.longitude };
+  }
+  return "?lat=" + wxLoc.lat + "&lon=" + wxLoc.lon;
+}
 async function playWeather(ch, gen) {
   loadingOn(false);
   $("#wx").classList.add("on");
   $("#wxbody").textContent = "";
   playSlot({ id: "ia-retro-weather", kind: "ia" }, gen, 0); // the music
   loadingOn(false);
-  try { [wxData, wxExtra] = await Promise.all([jget("/api/weather"), jget("/api/weather/extra").catch(() => null)]); } catch { /* keep going without */ }
+  let q = "";
+  try { q = await wxQuery(); } catch { flash("ZIP NOT FOUND - USING AUTO"); }
+  try { [wxData, wxExtra] = await Promise.all([jget("/api/weather" + q), jget("/api/weather/extra" + q).catch(() => null)]); } catch { /* keep going without */ }
   wxPage = 0;
   drawWx();
   wxTimer = setInterval(() => { wxPage++; drawWx(); }, 11000);
@@ -425,15 +486,18 @@ function renderGuide() {
   $("#gclock").textContent = new Date().toLocaleDateString(undefined, { weekday: "short", month: "numeric", day: "numeric" }).toUpperCase();
   // rows
   const rh = window.innerHeight * 0.084, gap = window.innerHeight * 0.01;
+  const list = chList();
+  if (list.indexOf(gCh) < 0) gCh = list.find((i) => i >= gCh) ?? list[0]; // the highlighted channel left the (favorites) list
+  const gp = list.indexOf(gCh);
   const per = Math.max(3, Math.floor((rows.clientHeight + gap) / (rh + gap)));
-  if (gCh < gTop) gTop = gCh; else if (gCh >= gTop + per) gTop = gCh - per + 1;
-  gTop = Math.max(0, Math.min(gTop, channels.length - per));
+  if (gp < gTop) gTop = gp; else if (gp >= gTop + per) gTop = gp - per + 1;
+  gTop = Math.max(0, Math.min(gTop, list.length - per));
   rows.textContent = "";
   let selProg = null;
-  for (let i = gTop; i < Math.min(channels.length, gTop + per); i++) {
-    const ch = channels[i];
+  for (let pi = gTop; pi < Math.min(list.length, gTop + per); pi++) {
+    const i = list[pi], ch = channels[i];
     const row = document.createElement("div"); row.className = "grow" + (i === tuned ? " cur" : "");
-    const box = document.createElement("div"); box.className = "gch";
+    const box = document.createElement("div"); box.className = "gch" + (isFav(ch.id) ? " fav" : "");
     box.innerHTML = "<b></b><span></span>"; box.firstChild.textContent = ch.num; box.lastChild.textContent = ch.name;
     box.onclick = () => { gCh = i; tune(i); setMode("tv"); };
     const track = document.createElement("div"); track.className = "gtrack";
@@ -466,7 +530,7 @@ function guideInfo(ch, p, now) {
   $("#gleft").textContent = live ? minsText(p.e - now) + " left" : "Starts in " + minsText(p.s - now);
   $("#gmeta").textContent = [ch.num + "  " + ch.name, clockL(p.s) + " - " + clockL(p.e), minsText(p.e - p.s), p.sub && !p.filler ? p.sub : ""].filter(Boolean).join("  •  ");
   $("#gdesc").textContent = p.filler ? "" : (ch.blurb || "");
-  $("#gtags").textContent = ch.cat || "";
+  $("#gtags").textContent = (isFav(ch.id) ? "\u2605 FAVORITE" + (ch.cat ? "  \u2022  " : "") : "") + (ch.cat || "");
 }
 function gFit() {
   const now = Date.now() / 1000;
@@ -476,8 +540,9 @@ function gFit() {
 }
 function gAfter() { gFit(); renderGuide(); preview.request(channels[gCh]); syncOut(); }
 function gMoveCh(d, wrap = true) {
-  const n = channels.length;
-  gCh = wrap ? (gCh + d + n) % n : Math.min(n - 1, Math.max(0, gCh + d));
+  const list = chList(), n = list.length;
+  const p = Math.max(0, list.indexOf(gCh));
+  gCh = list[wrap ? (p + d + n) % n : Math.min(n - 1, Math.max(0, p + d))];
   gAfter();
 }
 function gMoveTime(dir) {
@@ -517,6 +582,7 @@ const preview = (() => {
   async function start(ch) {
     const my = ++gen; pv.muted = true;
     try {
+      if (NDI_MODE && channels[tuned] !== ch) { msg.textContent = ch.name; return; } // the NDI copy only mirrors the current channel, not a third stream
       if (ch.kind === "weather") { msg.textContent = "WEATHERSTAR\nLOCAL FORECAST"; return; }
       if (channels[tuned] === ch && v.captureStream && v.readyState >= 2 && !swapActive) { pv.srcObject = v.captureStream(); await pv.play(); if (my === gen) msg.textContent = ""; return; } // the channel already on: just mirror it
       if (ch.kind === "pluto") {
@@ -562,12 +628,11 @@ function typeDigit(d) {
 /* ---------- volume ---------- */
 let muted = false;
 function setVol(dv) {
-  v.volume = Math.min(1, Math.max(0, v.volume + dv)); v2.volume = v.volume;
-  localStorage.setItem("bw-vol", String(v.volume));
-  flash("VOLUME " + Math.round(v.volume * 100));
+  setS({ volume: Math.round(clamp01(S.volume + dv) * 100) / 100 });
+  flash("VOLUME " + Math.round(S.volume * 100));
 }
-function toggleMute() { muted = !muted; v.muted = muted || swapActive; v2.muted = muted; flash(muted ? "MUTE" : "VOLUME " + Math.round(v.volume * 100)); }
-v.volume = NDI_MODE ? 1 : +(localStorage.getItem("bw-vol") ?? 0.8);
+function toggleMute() { setS({ muteWindow: !S.muteWindow }); flash(S.muteWindow ? "MUTE" : "VOLUME " + Math.round(S.volume * 100)); }
+v.volume = NDI_MODE ? 1 : 0.8; // replaced by the saved setting as soon as it loads
 
 /* ---------- NDI output ---------- */
 // The visible window only asks for NDI (D) and reports what it shows. The hidden 1920x1080 copy (?ndi=1) follows it, plays its own streams
@@ -580,13 +645,16 @@ function syncOut(force) {
 }
 async function toggleNdi() {
   if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
-  flash(ndiOn ? "NDI OFF" : "NDI STARTING...");
-  let r;
-  try { r = await window.bw.ndiToggle(); } catch (e) { r = { on: false, error: String(e) }; }
-  ndiOn = !!r.on;
-  if (r.error) { console.error("NDI:", r.error); return flash("NDI UNAVAILABLE"); }
-  flash(ndiOn ? "NDI ON: " + (r.name || "BackWhenTV") : "NDI OFF");
+  flash(ndiOn ? "NDI STOPPING..." : "NDI STARTING...");
+  await window.bw.ndiToggle(); // the answer arrives as an ndi-status event
 }
+if (!NDI_MODE && window.bw && window.bw.onNdiStatus) window.bw.onNdiStatus((r) => {
+  ndiOn = !!r.on;
+  if (r.error) { console.error("NDI:", r.error); flash("NDI UNAVAILABLE"); }
+  else flash(ndiOn ? "NDI ON: " + (r.name || "BackWhenTV") : "NDI OFF");
+  if (settingsOpen) renderSettings();
+  if (ndiOn) syncOut(true);
+});
 async function ndiAudioStart() {
   v.crossOrigin = v2.crossOrigin = "anonymous"; // lets the audio graph read the media
   ndiCtx = new AudioContext({ sampleRate: 48000 });
@@ -620,6 +688,91 @@ async function initNdiWindow() {
 }
 if (!NDI_MODE && window.bw && window.bw.onNdiResend) window.bw.onNdiResend(() => syncOut(true));
 
+/* ---------- settings menu ---------- */
+let settingsOpen = false, sSel = 0, sTop = 0, sEdit = null;
+const onoff = (b) => (b ? "ON" : "OFF");
+const chNameOf = (num) => { const ch = channels.find((x) => x.num === num); return ch ? ch.name : ""; };
+function wxChanged() { wxLoc = null; if (channels[tuned] && channels[tuned].kind === "weather") tune(tuned, false); }
+function cycleStart(d) {
+  const nums = [0, ...channels.map((x) => x.num)];
+  const i = Math.max(0, nums.indexOf(S.startChannel));
+  setS({ startChannel: nums[(i + d + nums.length) % nums.length] });
+}
+const settingRows = () => [
+  { l: "VOLUME", v: () => Math.round(S.volume * 100) + "%", adj: (d) => setS({ volume: Math.round(clamp01(S.volume + d * 0.05) * 100) / 100 }) },
+  { l: "MUTE WINDOW", v: () => onoff(S.muteWindow), tog: () => setS({ muteWindow: !S.muteWindow }) },
+  { l: "NDI OUTPUT", v: () => onoff(ndiOn), tog: () => toggleNdi() },
+  { l: "MUTE NDI AUDIO", v: () => onoff(S.muteNdi), tog: () => setS({ muteNdi: !S.muteNdi }) },
+  { l: "START NDI WITH THE APP", v: () => onoff(S.ndiOnStart), tog: () => setS({ ndiOnStart: !S.ndiOnStart }) },
+  { l: "NDI AUDIO OFFSET (MS, + = LATER)", v: () => (S.ndiAudioOffset > 0 ? "+" : "") + S.ndiAudioOffset, adj: (d) => setS({ ndiAudioOffset: Math.max(-1000, Math.min(1000, (S.ndiAudioOffset || 0) + d * 10)) }) },
+  { l: "NDI SOURCE NAME", v: () => S.ndiName, edit: { init: () => S.ndiName, max: 32, set: (t) => setS({ ndiName: t.trim() || "BackWhenTV" }) } },
+  { l: "START FULLSCREEN (NEXT LAUNCH)", v: () => onoff(S.startFullscreen), tog: () => setS({ startFullscreen: !S.startFullscreen }) },
+  { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
+  { l: "CLOSE BUTTON GOES TO TRAY", v: () => onoff(S.closeToTray), tog: () => setS({ closeToTray: !S.closeToTray }) },
+  { l: "LAUNCH WITH WINDOWS", v: () => onoff(S.launchAtLogin), tog: () => setS({ launchAtLogin: !S.launchAtLogin }) },
+  { l: "START CHANNEL", v: () => (S.startChannel ? S.startChannel + " " + chNameOf(S.startChannel) : "LAST WATCHED"), adj: cycleStart,
+    edit: { init: () => String(S.startChannel || ""), digits: true, max: 3, set: (t) => { const n = +t; if (!t) return setS({ startChannel: 0 }); if (channels.some((x) => x.num === n)) setS({ startChannel: n }); else flash("NO SUCH CHANNEL"); } } },
+  { l: "FAVORITES ONLY (GUIDE, UP/DOWN)", v: () => onoff(S.favOnly) + "  (" + S.favorites.length + " SAVED)", tog: () => setS({ favOnly: !S.favOnly }) },
+  { l: "FAVORITE THE CURRENT CHANNEL", v: () => (channels[tuned] ? (isFav(channels[tuned].id) ? "★ YES" : "NO") : ""), tog: () => toggleFav(channels[tuned] && channels[tuned].id) },
+  { l: "WEATHER LOCATION", v: () => (S.wxMode === "zip" ? "ZIP CODE" : "AUTO (BY INTERNET)"), tog: () => { setS({ wxMode: S.wxMode === "zip" ? "auto" : "zip" }); wxChanged(); } },
+  { l: "WEATHER ZIP CODE (US)", v: () => S.wxZip || "NOT SET", edit: { init: () => S.wxZip, digits: true, max: 5, set: (t) => { if (t && !/^\d{5}$/.test(t)) return flash("ENTER A 5 DIGIT ZIP"); setS({ wxZip: t, wxMode: t ? "zip" : "auto" }); wxChanged(); } } },
+  { l: "TOGGLE FULLSCREEN NOW", v: () => "ENTER", tog: () => toggleFs() },
+  { l: "CLOSE SETTINGS", v: () => "", tog: () => closeSettings() },
+];
+function renderSettings() {
+  const rows = settingRows(), box = $("#srows");
+  if (sSel >= rows.length) sSel = rows.length - 1;
+  const rh = window.innerHeight * 0.066;
+  const per = Math.max(5, Math.floor(box.clientHeight / rh));
+  if (sSel < sTop) sTop = sSel; else if (sSel >= sTop + per) sTop = sSel - per + 1;
+  sTop = Math.max(0, Math.min(sTop, rows.length - per));
+  box.textContent = "";
+  for (let i = sTop; i < Math.min(rows.length, sTop + per); i++) {
+    const r = rows[i], el = document.createElement("div");
+    el.className = "srow" + (i === sSel ? " sel" : "");
+    const l = document.createElement("span"); l.className = "sl"; l.textContent = r.l;
+    const val = document.createElement("span"); val.className = "sv";
+    if (sEdit && i === sSel) {
+      const inp = document.createElement("input");
+      inp.value = sEdit.text; inp.maxLength = r.edit.max; inp.spellcheck = false;
+      inp.oninput = () => { if (r.edit.digits) inp.value = inp.value.replace(/\D/g, ""); sEdit.text = inp.value; };
+      val.append(inp);
+      setTimeout(() => { inp.focus(); inp.select(); }, 0);
+    } else val.textContent = r.v();
+    el.append(l, val);
+    el.onclick = () => { sSel = i; settingAct(0); };
+    box.append(el);
+  }
+  $("#shelp").textContent = sEdit ? "TYPE THEN ENTER TO SAVE   ESC CANCEL" : "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER TOGGLE OR EDIT   S/ESC CLOSE";
+  $("#sver").textContent = "v" + (window.bw && window.bw.version || "");
+}
+function settingAct(dir) { // dir: -1/+1 from arrows, 0 from Enter or a click
+  const r = settingRows()[sSel];
+  if (dir && r.adj) r.adj(dir);
+  else if (dir && r.tog) r.tog();
+  else if (!dir && r.edit) { sEdit = { text: r.edit.init() }; }
+  else if (!dir && r.tog) r.tog();
+  renderSettings();
+}
+function openSettings() { if (NDI_MODE) return; settingsOpen = true; sEdit = null; $("#settings").classList.add("on"); $("#banner").classList.remove("on"); renderSettings(); }
+function closeSettings() { settingsOpen = false; sEdit = null; $("#settings").classList.remove("on"); }
+function settingsKey(e) {
+  const k = e.key, rows = settingRows();
+  if (sEdit) {
+    if (k === "Enter") { const r = rows[sSel], t = sEdit.text; sEdit = null; r.edit.set(t); renderSettings(); e.preventDefault(); }
+    else if (k === "Escape") { sEdit = null; renderSettings(); e.preventDefault(); }
+    return; // everything else types into the box
+  }
+  if (k === "ArrowUp") sSel = (sSel - 1 + rows.length) % rows.length;
+  else if (k === "ArrowDown") sSel = (sSel + 1) % rows.length;
+  else if (k === "ArrowLeft") return void (settingAct(-1), e.preventDefault());
+  else if (k === "ArrowRight") return void (settingAct(1), e.preventDefault());
+  else if (k === "Enter" || k === " ") return void (settingAct(0), e.preventDefault());
+  else if (k === "Escape" || k === "Backspace" || k === "s" || k === "S") return void (closeSettings(), e.preventDefault());
+  else return;
+  renderSettings(); e.preventDefault();
+}
+
 /* ---------- input ---------- */
 const toggleFs = () => (window.bw ? window.bw.fullscreen() : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
 function begin() {
@@ -631,12 +784,16 @@ function begin() {
 addEventListener("keydown", (e) => {
   if (!channels.length) return;
   if (!started) { begin(); e.preventDefault(); return; }
+  if (settingsOpen) return settingsKey(e);
   const g = mode === "guide", k = e.key;
   if (/^[0-9]$/.test(k)) typeDigit(k);
-  else if (k === "ArrowUp") g ? gMoveCh(-1) : tune(tuned + 1);
-  else if (k === "ArrowDown") g ? gMoveCh(1) : tune(tuned - 1);
-  else if (k === "PageUp") g ? gMoveCh(-5, false) : tune(tuned + 1);
-  else if (k === "PageDown") g ? gMoveCh(5, false) : tune(tuned - 1);
+  else if (k === "ArrowUp") g ? gMoveCh(-1) : surf(1);
+  else if (k === "ArrowDown") g ? gMoveCh(1) : surf(-1);
+  else if (k === "PageUp") g ? gMoveCh(-5, false) : surf(1);
+  else if (k === "PageDown") g ? gMoveCh(5, false) : surf(-1);
+  else if (k === "s" || k === "S") openSettings();
+  else if (k === "h" || k === "H") toggleFav(g ? channels[gCh] && channels[gCh].id : channels[tuned] && channels[tuned].id);
+  else if (k === "v" || k === "V") { setS({ favOnly: !S.favOnly }); flash(S.favOnly ? "FAVORITES ONLY" : "ALL CHANNELS"); }
   else if (k === "ArrowLeft") g ? gMoveTime(-1) : setVol(-0.05);
   else if (k === "ArrowRight") g ? gMoveTime(1) : setVol(0.05);
   else if ((k === "n" || k === "N") && g) gNow();
@@ -653,7 +810,7 @@ addEventListener("keydown", (e) => {
   else return;
   e.preventDefault();
 });
-addEventListener("wheel", (e) => { if (!started) return; if (mode === "guide") gMoveCh(e.deltaY > 0 ? 1 : -1); else tune(tuned + (e.deltaY > 0 ? 1 : -1)); }, { passive: true });
+addEventListener("wheel", (e) => { if (!started) return; if (settingsOpen) { sSel = Math.max(0, Math.min(settingRows().length - 1, sSel + (e.deltaY > 0 ? 1 : -1))); renderSettings(); } else if (mode === "guide") gMoveCh(e.deltaY > 0 ? 1 : -1); else surf(e.deltaY > 0 ? -1 : 1); }, { passive: true });
 document.addEventListener("click", (e) => { if (!started) return begin(); if (mode === "tv" && (e.target === v || e.target === v2 || e.target.closest("#wx"))) setMode("guide"); });
 document.addEventListener("dblclick", toggleFs);
 let idleT;
