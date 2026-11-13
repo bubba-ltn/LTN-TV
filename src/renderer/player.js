@@ -643,7 +643,7 @@ function typeDigit(d) {
     const n = +digits; digits = ""; el.style.display = "none";
     const i = channels.findIndex((c) => c.num === n);
     if (i >= 0) { tune(i); if (mode === "guide") setMode("tv"); }
-  }, digits.length >= 2 ? 700 : 1800);
+  }, channels.some((c) => String(c.num).startsWith(digits) && String(c.num) !== digits) ? (digits.length >= 2 ? 700 : 1800) : 300);
 }
 
 /* ---------- volume ---------- */

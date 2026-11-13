@@ -4,10 +4,10 @@ Love Thy Nerd, always on. A TV-style player for Windows that carries only the Lo
 
 | Channel | What it is |
 |---|---|
-| 158 LTN LATEST | Who is live, plus the newest from Twitch, lovethynerd.com and YouTube, over background music |
-| 159 LTN PLAYS GAMES | The Twitch stream when we are live; the LTN Plays Games YouTube channel on shuffle when we are not, with the next stream's time in the corner |
-| 160 LTN DAILY BIBLE | The LTN Daily Audio Bible playlist, played through in order |
-| 162-173 | One channel per show: Love Thy Nerd, NCMU Podcast, Nerd History, RPG Rundown, The Pull List, Save & Continue, Christian Board Gamers, Faith & Fandom, Satellite Stories, Two Words, Church Nerds, Bible Thump |
+| 1 LTN NEWS | Who is live, plus the newest from Twitch, lovethynerd.com and YouTube, over background music |
+| 2 LTN DAILY BIBLE | The LTN Daily Audio Bible playlist, played through in order |
+| 3 LTN PLAYS GAMES | The Twitch stream when we are live; the LTN Plays Games YouTube channel on shuffle when we are not, with the next stream's time in the corner |
+| 4-15 | One channel per show: Love Thy Nerd, NCMU Podcast, Nerd History, RPG Rundown, The Pull List, Save & Continue, Christian Board Gamers, Faith & Fandom, Satellite Stories, Two Words, Church Nerds, Bible Thump |
 
 The show channels are always on and shuffled, and the same for everyone: what is playing, and how far in, depends only on the clock. They play full videos only (no Shorts) with captions off.
 
