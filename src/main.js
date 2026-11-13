@@ -114,6 +114,9 @@ function create() {
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
   win.webContents.on("console-message", (e, level, message, line, src) => { if (level >= 3 && !/CORS|net::ERR/.test(message)) log("window error:", message, String(src) + ":" + line); });
   win.webContents.on("render-process-gone", (e, d) => log("window process gone", d));
+  let moves = 0;
+  const logMove = (what) => { if (moves++ < 100) log("window", what, JSON.stringify(win.getBounds()), win.isFullScreen() ? "fullscreen" : "windowed"); };
+  win.on("move", () => logMove("move")); win.on("resize", () => logMove("resize"));
   win.on("minimize", () => { if (S.minimizeToTray) win.hide(); });
   win.on("close", (e) => { if (S.closeToTray && !quitting) { e.preventDefault(); win.hide(); } });
   win.on("closed", () => { win = null; ndiStop(); });

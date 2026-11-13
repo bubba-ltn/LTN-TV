@@ -344,3 +344,18 @@ function ltnStop() {
   if (t) { t.classList.remove("on"); const p = $("#twp"); if (p) p.textContent = ""; }
   if (y) { y.classList.remove("on"); const f = $("#ytf"); if (f && /youtube/.test(f.getAttribute("src") || "")) f.src = "about:blank"; }
 }
+
+/* ---------- keep the picture still, and leave a trail if something moves it ---------- */
+(() => {
+  let n = 0;
+  const diag = (...a) => { if (n++ < 300) console.error("DIAG", NDI_MODE ? "ndi" : "window", ...a); };
+  // nothing here should ever scroll; if it does, say so and put it back at once
+  addEventListener("scroll", () => { diag("scroll", window.scrollX, window.scrollY, document.documentElement.scrollLeft, document.body.scrollLeft); window.scrollTo(0, 0); document.documentElement.scrollLeft = 0; document.body.scrollLeft = 0; }, true);
+  if (window.visualViewport) for (const ev of ["scroll", "resize"]) visualViewport.addEventListener(ev, () => diag("visualViewport", ev, Math.round(visualViewport.offsetLeft), Math.round(visualViewport.offsetTop), Math.round(visualViewport.width), Math.round(visualViewport.height)));
+  addEventListener("DOMContentLoaded", () => {
+    if (!window.ResizeObserver) return;
+    const ro = new ResizeObserver((es) => es.forEach((e) => diag("resize", e.target.id || e.target.tagName, Math.round(e.contentRect.width), Math.round(e.contentRect.height))));
+    for (const id of ["ytf", "twp", "yt", "tw", "ltn"]) { const el = document.getElementById(id); if (el) ro.observe(el); }
+    ro.observe(document.documentElement);
+  });
+})();
