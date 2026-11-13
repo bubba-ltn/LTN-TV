@@ -8,6 +8,7 @@ const LTN = {
   ltnOnly: true, // LTN TV: only the Love Thy Nerd channels are in the lineup (false brings back the BackWhenTV channels)
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
+  outreach: "https://lovethynerd.com/outreach/",
   twitch: "lovethynerd",
   // Spotify playlists listed on LTN NEWS: [id, title], in the order the profile page shows them (open.spotify.com/user/${user}/playlists). Spotify has no
   // keyless way for an app to ask a profile for its list, so this was read from the page; new playlists can be added by pasting links in Settings
@@ -182,6 +183,32 @@ async function ltnSite() {
     return { t: ltnTag(it, "title"), at: Date.parse(ltnTag(it, "pubDate")) || 0, by: ltnTag(it, "dc:creator"), cat: ltnTag(it, "category"), img, text: text.slice(0, 220) };
   });
 }
+async function ltnTrips() { // mission trips from the outreach page: only the ones that have not started yet
+  const html = await fetch(LTN.outreach, { cache: "no-store" }).then((r) => r.text());
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const out = [];
+  for (const c of doc.querySelectorAll(".trip-card")) {
+    const start = c.getAttribute("data-start-date") || "";
+    const [y, m, d] = start.split("-").map(Number);
+    if (!y) continue;
+    const at = new Date(y, m - 1, d).getTime();
+    if (at < today.getTime()) continue;
+    const im = c.querySelector("img");
+    const img = (im && (im.getAttribute("data-src") || im.getAttribute("src")) || "").replace(/\?.*$/, "");
+    const btn = c.querySelector("button"), ev = c.querySelector("h1,h2");
+    out.push({
+      t: (ev ? ev.textContent : "").trim().toUpperCase(), at,
+      where: (c.querySelector(".trip-location") || {}).textContent || "",
+      when: ((c.querySelector(".trip-date") || {}).textContent || "").trim(),
+      days: Math.round((at - today.getTime()) / 86400000),
+      open: !!btn && !/closed/i.test(btn.textContent), img: /^https?:/.test(img) ? img : "",
+    });
+  }
+  out.sort((a, b) => a.at - b.at);
+  if (!out.length) throw new Error("no trips");
+  return out;
+}
 async function ltnTwitch() {
   const g = (p) => fetch("https://decapi.me/twitch/" + p + "/" + LTN.twitch, { cache: "no-store" }).then((r) => r.text()).then((t) => t.trim());
   const [uptime, title, game] = await Promise.all([g("uptime"), g("title").catch(() => ""), g("game").catch(() => "")]);
@@ -245,8 +272,8 @@ async function ltnSpotify() { // the covers (and names we do not know) through S
 }
 async function ltnLoad(force) {
   if (!force && ltnData && Date.now() - ltnAt < LTN.refreshMs) return;
-  const [yt, site, tw] = await Promise.allSettled([ltnYoutube(), ltnSite(), ltnTwitch()]);
-  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null, spotify: (ltnData && ltnData.spotify) || [] };
+  const [yt, site, tw, trips] = await Promise.allSettled([ltnYoutube(), ltnSite(), ltnTwitch(), ltnTrips()]);
+  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null, trips: trips.value || (ltnData && ltnData.trips) || null, spotify: (ltnData && ltnData.spotify) || [] };
   ltnSpotify().then((sp) => { if (ltnData && sp.length) ltnData.spotify = sp; }).catch(() => {}); // in the background: many small requests
   if (tw.value) ltnTw = tw.value;
   ltnAt = Date.now();
@@ -387,6 +414,8 @@ function ltnPages() {
     return `<div class="lc">${pic}<div class="lct">${esc(title)}</div><div class="lcs">${esc(meta)}</div></div>`;
   };
   if (d && d.site && d.site.length) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
+  // mission trips, soonest first
+  if (d && d.trips && d.trips.length) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
     const vids = d.yt.videos.slice(0, 18);
     for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, v.show + "  •  " + ago(v.at))).join("")}</div>`]);
