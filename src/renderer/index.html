@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BackWhenTV</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; media-src https: http: blob: data:; img-src https: data: blob:">
+<style>
+  :root { --yellow: #ffd21f; --orange: #ff9a1f; --panel: #0b0f4a; --bg: #1230b8; --sky: #2a5bd7; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: hidden; font-family: "Roboto Condensed", "Arial Narrow", Arial, sans-serif; user-select: none; }
+  body.idle { cursor: none; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #v2 { display: none; }
+  .layer { position: fixed; inset: 0; pointer-events: none; }
+  #banner { left: 3vw; right: 3vw; bottom: 4vh; top: auto; height: auto; background: var(--panel); border: 3px solid var(--orange); padding: 1.2vh 2vw; display: none; align-items: center; gap: 2vw; }
+  #banner.on { display: flex; }
+  #bnum { font-size: 9vh; font-weight: 900; color: var(--yellow); min-width: 3ch; }
+  #bname { font-size: 2.6vh; }
+  #btitle { font-size: 3.6vh; color: var(--yellow); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bnext { font-size: 2.2vh; color: #b8c6ff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #bclock { margin-left: auto; font-size: 3vh; color: var(--orange); }
+  #guide { display: none; flex-direction: column; padding: 3.5vh 3vw 2.5vh; gap: 1.2vh; pointer-events: auto; background: linear-gradient(180deg, rgba(0,0,0,.50) 0%, rgba(0,0,0,.80) 55%, rgba(0,0,0,.88) 100%); }
+  #guide.on { display: flex; }
+  #ginfo { display: flex; justify-content: space-between; gap: 3vw; height: 34vh; flex: none; }
+  #gtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .9vh; text-shadow: 2px 2px 4px rgba(0,0,0,.7); }
+  body.gmode #wx { visibility: hidden; }
+  #gtitle { margin: 0; font-size: 5.6vh; font-weight: 900; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #gprog { display: flex; align-items: center; gap: 1.2vw; font-size: 2.2vh; font-weight: 700; color: #ff5a3c; min-height: 2.6vh; }
+  #gbar { width: 14vw; height: .7vh; background: rgba(255,255,255,.35); border-radius: 1vh; overflow: hidden; }
+  #gbar i { display: block; height: 100%; background: #ff5a3c; }
+  #gmeta { font-size: 2.1vh; font-weight: 700; color: #e9ecf5; }
+  #gdesc { font-size: 2.2vh; line-height: 1.3; color: #fff; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  #gtags { font-size: 1.9vh; font-weight: 700; color: #cfd6ee; }
+  #gprev { position: relative; flex: none; height: 100%; aspect-ratio: 16 / 9; background: #000; border: 3px solid rgba(255,255,255,.85); border-radius: .6vh; overflow: hidden; box-shadow: 0 .6vh 2vh rgba(0,0,0,.6); }
+  #pv { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #gprevmsg { white-space: pre-line; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 1vw; font-size: 2.6vh; font-weight: 900; color: var(--yellow); text-shadow: 2px 2px 0 #000; background: rgba(0,0,0,.35); }
+  #gprevmsg:empty { display: none; }
+  #gtimes, .grow { display: grid; grid-template-columns: 9.5vw 1fr; gap: .8vw; flex: none; }
+  #gtimes { height: 3.6vh; align-items: end; font-size: 2.3vh; font-weight: 900; }
+  #gclock { color: var(--orange); font-size: 1.9vh; white-space: nowrap; overflow: hidden; align-self: center; }
+  #gticks { position: relative; height: 100%; }
+  #gticks span { position: absolute; bottom: 0; transform: translateX(0); padding-left: .6vw; white-space: nowrap; border-left: 2px solid rgba(255,255,255,.55); line-height: 1.1; }
+  #grows { display: flex; flex-direction: column; gap: 1vh; flex: 1; min-height: 0; overflow: hidden; }
+  .grow { height: 8.4vh; }
+  .gch { display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(120,128,148,.78); border-radius: .5vh; cursor: pointer; overflow: hidden; padding: 0 .4vw; }
+  .gch b { font-size: 3.2vh; line-height: 1; }
+  .gch span { font-size: 1.5vh; font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .9; }
+  .grow.cur .gch { box-shadow: inset 0 0 0 3px var(--orange); }
+  .gtrack { position: relative; }
+  .blk { position: absolute; top: 0; bottom: 0; display: flex; flex-direction: column; justify-content: center; padding: 0 1vw; background: rgba(130,138,156,.78); border-radius: .5vh; font-size: 2.5vh; font-weight: 700; overflow: hidden; cursor: pointer; border-left: 0 solid transparent; }
+  .blk .bt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blk .bs { font-size: 1.6vh; font-weight: 400; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blk.live { background: rgba(150,158,176,.88); }
+  .blk.cont { padding-left: 1.6vw; }
+  .blk.sel { background: #f2f3f7; color: #111; box-shadow: 0 0 0 3px var(--orange); z-index: 2; }
+  #ghelp { flex: none; text-align: center; color: #cfd6ee; font-size: 1.8vh; font-weight: 700; letter-spacing: .04em; }
+  #digits { right: 4vw; top: 4vh; left: auto; bottom: auto; width: auto; height: auto; font-size: 11vh; font-weight: 900; color: var(--yellow); text-shadow: 4px 4px 0 #000; display: none; }
+  #msg { display: none; align-items: center; justify-content: center; font-size: 7vh; font-weight: 900; text-shadow: 4px 4px 0 #000; text-align: center; }
+  #bars { display: none; background: linear-gradient(90deg, #c0c0c0 0 14.28%, #c0c000 0 28.56%, #00c0c0 0 42.84%, #00c000 0 57.12%, #c000c0 0 71.4%, #c00000 0 85.68%, #0000c0 0); align-items: center; justify-content: center; font-size: 7vh; font-weight: 900; }
+  #bars span { background: #000; padding: 2vh 4vw; border: 4px solid var(--orange); }
+  #start { pointer-events: auto; background: #000 url(https://backwhen.stream/img/logo.webp) center 10vh / auto 46vh no-repeat; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 1.6vh; padding-bottom: 8vh; text-align: center; cursor: pointer; }
+  #start h1 { margin: 0; font-size: 5vh; color: var(--yellow); }
+  #start p { margin: 0; font-size: 2.4vh; color: #b8c6ff; }
+  #start .go { border: 3px solid var(--yellow); padding: 1.2vh 3vw; font-size: 3vh; font-weight: 900; color: var(--yellow); }
+  /* weather channel */
+  #wx { background: linear-gradient(180deg, #1b3fa8 0%, #0a1c6b 100%); display: none; flex-direction: column; padding: 4vh 5vw; font-weight: 700; text-shadow: 3px 3px 0 #000; }
+  #wx.on { display: flex; }
+  #wxhead { display: flex; justify-content: space-between; font-size: 4vh; color: var(--yellow); border-bottom: 4px solid var(--orange); padding-bottom: 1vh; }
+  #wxbody { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 1.6vh; font-size: 4.2vh; overflow: hidden; }
+  #wxbody .big { font-size: 15vh; color: var(--yellow); line-height: 1; }
+  #wxbody .row2 { display: flex; justify-content: space-between; gap: 2vw; }
+  #wxbody .row2 span:first-child { color: var(--yellow); min-width: 22vw; }
+  #wxbody .sm { font-size: 3.2vh; color: #dbe4ff; font-weight: 400; line-height: 1.25; }
+  #wxbody img { max-height: 62vh; max-width: 100%; align-self: center; border: 4px solid var(--orange); background: #000; }
+  #wxfoot { display: flex; justify-content: space-between; font-size: 2.6vh; color: var(--orange); }
+  #swapinfo { display: none; }
+</style>
+</head>
+<body>
+<video id="v" playsinline></video>
+<video id="v2" playsinline></video>
+<div class="layer" id="wx"><div id="wxhead"><span id="wxtitle">LOCAL FORECAST</span><span id="wxclock"></span></div><div id="wxbody"></div><div id="wxfoot"><span id="wxpage"></span><span>BACKWHENTV WEATHER</span></div></div>
+<div class="layer" id="bars"><span>LOADING CHANNEL...</span></div>
+<div class="layer" id="msg"></div>
+<div class="layer" id="banner"><div id="bnum"></div><div><div id="bname"></div></div><div style="flex:1;min-width:0"><div id="btitle"></div><div id="bnext"></div></div><div id="bclock"></div></div>
+<div class="layer" id="guide">
+  <div id="ginfo">
+    <div id="gtext"><h1 id="gtitle"></h1><div id="gprog"><div id="gbar"><i></i></div><span id="gleft"></span></div><div id="gmeta"></div><div id="gdesc"></div><div id="gtags"></div></div>
+    <div id="gprev"><video id="pv" muted playsinline></video><div id="gprevmsg"></div></div>
+  </div>
+  <div id="gtimes"><span id="gclock"></span><div id="gticks"></div></div>
+  <div id="grows"></div>
+  <div id="ghelp">ARROWS MOVE &nbsp; PGUP/PGDN PAGE &nbsp; N NOW &nbsp; 0-9 GO TO &nbsp; ENTER WATCH &nbsp; D NDI &nbsp; G/ESC CLOSE &nbsp; F FULLSCREEN</div>
+</div>
+<div class="layer" id="digits"></div>
+<div class="layer" id="start"><h1>BackWhenTV</h1><p>Cable TV, the way you remember it.</p><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; Esc = back</p></div>
+
+<script src="../node_modules/hls.js/dist/hls.min.js"></script>
+<script src="player.js"></script>
+</body>
+</html>
