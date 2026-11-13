@@ -43,7 +43,7 @@ function injectLtnChannels() {
   let n = LTN.numShows;
   for (const s of LTN.shows) {
     n = free(n);
-    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UU" + s.id.slice(2), wall: true }, blurb: s.info + " on YouTube. Always on, and the live stream whenever the show is live." });
+    add({ id: "ltn-yt-" + s.id, num: n, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UU" + s.id.slice(2), wall: true, random: s.id === LTN.playsId }, blurb: s.info + " on YouTube. Always on, and the live stream whenever the show is live." });
   }
   channels.sort((a, b) => a.num - b.num);
 }
@@ -69,6 +69,17 @@ function isLive(ch) {
   return false;
 }
 
+/* ---------- Shorts are ignored everywhere ---------- */
+const ytShortCache = new Map();
+async function ytIsShort(id) {
+  if (!id) return false;
+  if (ytShortCache.has(id)) return ytShortCache.get(id);
+  let short = false;
+  try { const r = await fetch("https://www.youtube.com/shorts/" + id, { method: "HEAD", redirect: "follow", cache: "no-store" }); short = /\/shorts\//.test(r.url); } catch { short = false; } // cannot tell: treat as a normal video
+  ytShortCache.set(id, short);
+  return short;
+}
+
 /* ---------- data pulls ---------- */
 async function ltnXml(url) {
   const r = await fetch(url, { cache: "no-store" });
@@ -80,7 +91,9 @@ async function ltnYoutube() {
   await Promise.allSettled(LTN.shows.map(async (s) => {
     const doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?channel_id=" + s.id);
     const show = ltnTag(doc.documentElement, "title");
-    const vids = [...doc.getElementsByTagName("entry")].slice(0, 5).map((e) => ({ id: ltnTag(e, "yt:videoId"), t: ltnTag(e, "title"), at: Date.parse(ltnTag(e, "published")) || 0, show, cid: s.id }));
+    let vids = [...doc.getElementsByTagName("entry")].slice(0, 5).map((e) => ({ id: ltnTag(e, "yt:videoId"), t: ltnTag(e, "title"), at: Date.parse(ltnTag(e, "published")) || 0, show, cid: s.id }));
+    const keep = await Promise.all(vids.map((v) => ytIsShort(v.id).then((x) => !x)));
+    vids = vids.filter((v, i) => keep[i]);
     out.push(...vids);
     if (vids[0]) shows.push(vids[0]);
   }));
@@ -253,7 +266,8 @@ async function playLtn(ch, gen) {
 }
 
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
-let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "";
+let ytJumpVid = "", ytRecent = [];
+let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "", ytFollowVid = 0;
 const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
 function ytCmd(func, args) {
   const f = $("#ytf");
@@ -289,7 +303,7 @@ function ytShow(src, gen) {
 }
 function playYt(ch, gen, owner) { // owner: the channel being watched, when it is borrowing this one's programme
   loadingOn(false);
-  ytInfo = {}; ytPos = 0;
+  ytInfo = {}; ytPos = 0; ytWant = -1; ytVidAtCmd = ""; ytJumpVid = ""; ytRecent = [];
   ltnTunedLive = isLive(ch); ltnTunedSig = ltnSig(owner || ch);
   if (ltnTunedLive) return ytShow(ytEmbed("live_stream?channel=" + ch.ytid), gen);
   ytShow(ytEmbed(ch.yt.first ? ch.yt.first + "?list=" + ch.yt.list : "videoseries?list=" + ch.yt.list), gen);
@@ -301,7 +315,23 @@ function ytPosition() {
   if (NDI_MODE || !ch || ch.kind !== "yt" || !ch.yt.wall || ltnTunedLive || ytPos === 2) return;
   const pl = ytInfo.playlist;
   if (!Array.isArray(pl) || !pl.length) return;
-  const n = Math.min(pl.length, 40), slot = 4 * 3600, now = Date.now() / 1000;
+  const now = Date.now() / 1000, slot = 4 * 3600;
+  if (ch.yt.random) { // shuffled: start at a random video and a random point in it
+    if (ytPos === 0) {
+      ytPos = 1;
+      ytWant = Math.floor(Math.random() * pl.length);
+      ytVidAtCmd = (ytInfo.videoData && ytInfo.videoData.video_id) || "";
+      ytCmd("playVideoAt", [ytWant]);
+      return;
+    }
+    if (ytPos === 1 && ytInfo.playlistIndex === ytWant && ytInfo.videoData && ytInfo.videoData.video_id !== ytVidAtCmd && ytInfo.duration > 5) {
+      ytCmd("seekTo", [Math.random() * ytInfo.duration * 0.7, true]);
+      ytPos = 2;
+    }
+    return;
+  }
+  // in order: the clock picks the programme (same for everyone) and the player carries on down the list from there
+  const n = Math.min(pl.length, 40);
   const want = (ytHash(ch.ytid) + Math.floor(now / slot)) % n;
   if (ytPos === 0) { ytPos = 1; if (ytInfo.playlistIndex !== want) { ytCmd("playVideoAt", [want]); return; } }
   if (ytPos === 1 && ytInfo.playlistIndex === want && ytInfo.videoData && ytInfo.videoData.video_id === pl[want] && ytInfo.duration > 5) {
@@ -319,20 +349,62 @@ addEventListener("message", (e) => {
     if (d.info.videoData) {
       ytInfo.videoData = { ...(ytInfo.videoData || {}), ...d.info.videoData };
       const vid = d.info.videoData.video_id;
-      if (vid && vid !== ytLastVid) { ytLastVid = vid; setTimeout(ytNoCaptions, 600); setTimeout(ytNoCaptions, 2500); }
+      if (vid && vid !== ytLastVid) { ytLastVid = vid; setTimeout(ytNoCaptions, 600); setTimeout(ytNoCaptions, 2500); ytSkipIfShort(vid); }
     }
     ytPosition();
+    ytAdvance();
   }
 });
+function ytAdvance() {
+  const ch = ltnPlayCh();
+  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive) return;
+  if (ch.yt.wall && ytPos !== 2) return; // still joining part-way through
+  const d = ytInfo.duration, t = ytInfo.currentTime, pl = ytInfo.playlist, vid = ytInfo.videoData && ytInfo.videoData.video_id, cur = ytInfo.playlistIndex;
+  if (!(d > 20) || t == null || !Array.isArray(pl) || pl.length < 2 || !vid || cur == null || ytJumpVid === vid) return;
+  if (!ytRecent.includes(vid)) ytRecent.push(vid);
+  if (d - t > 2.5) return;
+  ytJumpVid = vid; // once per video
+  if (ytRecent.length > Math.min(8, pl.length - 1)) ytRecent.shift();
+  ytGo(cur, pl, !!ch.yt.random);
+}
+// Play the next video: the next one down the list (back to the top at the end), or a random one for the shuffled channel. Shorts are passed over.
+async function ytGo(cur, pl, random) {
+  const tried = new Set([cur]);
+  for (let k = 0; k < 15; k++) {
+    let i;
+    if (random) {
+      i = -1;
+      for (let n = 0; n < 20; n++) { const c = Math.floor(Math.random() * pl.length); if (!tried.has(c) && !ytRecent.includes(pl[c])) { i = c; break; } }
+      if (i < 0) { do { i = Math.floor(Math.random() * pl.length); } while (tried.has(i) && tried.size < pl.length); }
+    } else i = (cur + 1 + k) % pl.length;
+    if (tried.has(i)) continue;
+    tried.add(i);
+    if (await ytIsShort(pl[i])) continue;
+    return ytCmd("playVideoAt", [i]);
+  }
+  ytCmd("playVideoAt", [(cur + 1) % pl.length]); // everything we looked at was a Short: just carry on
+}
+// a video that starts and turns out to be a Short (the playlist moved on by itself, or the clock picked it): skip it at once
+async function ytSkipIfShort(vid) {
+  const ch = ltnPlayCh();
+  if (NDI_MODE || !ch || ch.kind !== "yt" || ltnTunedLive || !(await ytIsShort(vid))) return;
+  if (!ytInfo.videoData || ytInfo.videoData.video_id !== vid) return; // already moved on
+  const pl = ytInfo.playlist, cur = ytInfo.playlistIndex;
+  if (Array.isArray(pl) && pl.length > 1 && cur != null) ytGo(cur, pl, !!ch.yt.random);
+}
 // the visible window reports where the playlist is; the hidden NDI copy follows it
-const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0 } : undefined);
+const ytSync = () => (ltnPlayCh() && ltnPlayCh().kind === "yt" && ytInfo.playlistIndex != null ? { idx: ytInfo.playlistIndex, t: ytInfo.currentTime || 0, vid: (ytInfo.videoData && ytInfo.videoData.video_id) || "" } : undefined);
 let ytFollowAt = 0;
 function ytFollow(y) {
-  if (!y || !ltnPlayCh() || ltnPlayCh().kind !== "yt" || ltnTunedLive) return;
+  const ch = ltnPlayCh();
+  if (!y || !ch || ch.kind !== "yt" || ltnTunedLive) return;
   if (ytInfo.playlistIndex == null || ytInfo.currentTime == null) return; // the copy has not reported yet: do not guess
+  if (ch.yt.random) { // shuffled: play the same video at the same point
+    const mine = (ytInfo.videoData && ytInfo.videoData.video_id) || "";
+    if (y.vid && mine !== y.vid) { if (Date.now() - ytFollowVid > 8000) { ytFollowVid = Date.now(); ytFollowAt = Date.now(); ytCmd("loadVideoById", [y.vid, y.t]); } return; }
+  } else if (ytInfo.playlistIndex !== y.idx && Date.now() - ytFollowAt >= 30000) { ytFollowAt = Date.now(); ytCmd("playVideoAt", [y.idx]); return; }
   if (Date.now() - ytFollowAt < 30000) return; // at most one correction every 30 s
-  if (ytInfo.playlistIndex !== y.idx) { ytFollowAt = Date.now(); ytCmd("playVideoAt", [y.idx]); }
-  else if (Math.abs(ytInfo.currentTime - y.t) > 15) { ytFollowAt = Date.now(); ytCmd("seekTo", [y.t, true]); }
+  if (Math.abs(ytInfo.currentTime - y.t) > 15) { ytFollowAt = Date.now(); ytCmd("seekTo", [y.t, true]); }
 }
 
 /* ---------- Twitch: the live stream, or the trailer while offline ---------- */
