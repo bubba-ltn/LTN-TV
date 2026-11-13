@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>BackWhenTV</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; media-src https: http: blob: data:; img-src https: data: blob:">
+<title>LTN TV</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; media-src https: http: blob: data:; img-src 'self' https: data: blob:">
 <style>
-  :root { --yellow: #ffd21f; --orange: #ff9a1f; --panel: #0b0f4a; --bg: #1230b8; --sky: #2a5bd7; }
+  /* LTN colours: magenta to cyan (the squircle's gradient) on deep indigo. The old names stay: --yellow is now the cyan highlight, --orange the magenta accent. */
+  :root { --yellow: #46dcff; --orange: #ff3cc0; --panel: #0a0522; --bg: #120536; --sky: #1b0a4d; --mag: #ff2bb0; --cyan: #35c8ff; --ink: #0d0424; --lav: #cdb9ff; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #000; color: #fff; overflow: clip; font-family: "Roboto Condensed", "Arial Narrow", Arial, sans-serif; user-select: none; }
   body.idle { cursor: none; }
@@ -128,12 +129,56 @@
   #wxbody img { max-height: 62vh; max-width: 100%; align-self: center; border: 4px solid var(--orange); background: #000; }
   #wxfoot { display: flex; justify-content: space-between; font-size: 2.6vh; color: var(--orange); }
   #swapinfo { display: none; }
+
+  /* ===== LTN TV theme: dark, retrowave, magenta to cyan ===== */
+  html, body { background: #05020f; }
+  #banner { background: rgba(10,5,34,.94); border: 3px solid transparent; border-image: linear-gradient(90deg, var(--mag), var(--cyan)) 1; box-shadow: 0 0 2.4vh rgba(255,43,176,.35), 0 0 4vh rgba(53,200,255,.2); }
+  #bnum { text-shadow: 0 0 1.4vh rgba(70,220,255,.7); }
+  #bnext, #gtags, #gmeta { color: var(--lav); }
+  #guide { background: linear-gradient(180deg, rgba(8,3,26,.64) 0%, rgba(10,4,34,.88) 55%, rgba(12,4,40,.95) 100%); }
+  #gtitle { text-shadow: 0 0 1.6vh rgba(255,43,176,.5), 2px 2px 4px rgba(0,0,0,.7); }
+  #gprog { color: var(--yellow); }
+  #gbar { background: rgba(255,255,255,.22); }
+  #gbar i { background: linear-gradient(90deg, var(--mag), var(--cyan)); }
+  #gprev { border: 3px solid transparent; border-image: linear-gradient(135deg, var(--mag), var(--cyan)) 1; box-shadow: 0 0 2.4vh rgba(255,43,176,.4), 0 0 3vh rgba(53,200,255,.25); border-radius: 0; }
+  #gticks span { border-left-color: var(--cyan); }
+  .gch { background: rgba(70,24,120,.78); }
+  .blk { background: rgba(52,22,100,.8); }
+  .blk.live { background: rgba(78,30,134,.92); }
+  .blk.sel { background: linear-gradient(90deg, var(--mag), var(--cyan)); color: var(--ink); text-shadow: none; box-shadow: 0 0 2.4vh rgba(255,43,176,.55), 0 0 2vh rgba(53,200,255,.45); }
+  .blk.onair { background: #c4125f; }
+  .blk.onair.sel { background: linear-gradient(90deg, #ff5a8a, #ffd0e4); color: #5a0030; box-shadow: 0 0 2.4vh rgba(255,60,120,.7); }
+  .grow.cur .gch { box-shadow: inset 0 0 0 3px var(--mag); }
+  #ghelp, #shelp { color: var(--lav); }
+  #settings { background: rgba(8,3,28,.97); }
+  #shead { border-bottom: 4px solid transparent; border-image: linear-gradient(90deg, var(--mag), var(--cyan)) 1; }
+  .srow { background: rgba(60,22,110,.72); }
+  .srow.sel { background: linear-gradient(90deg, var(--mag), var(--cyan)); color: var(--ink); border-left-color: #fff; }
+  .srow .sv input { background: #fff; color: #000; outline: 3px solid var(--mag); }
+  #ltn { background: radial-gradient(ellipse 90% 40% at 50% 105%, rgba(255,43,176,.28), transparent 70%), linear-gradient(180deg, #1c0746 0%, #090322 100%); }
+  #ltnhead { border-bottom: 4px solid transparent; border-image: linear-gradient(90deg, var(--mag), var(--cyan)) 1; }
+  .lpost, .lrow { background: rgba(255,255,255,.07); }
+  .ltwimg, .lpost img, .lc img { border-color: var(--cyan); }
+  .lpost, .lrow { border-left-color: var(--mag); }
+  #bars { background: linear-gradient(90deg, #ff2bb0, #8a3ffc 50%, #35c8ff); }
+  #bars span { background: #0a0522; border: 4px solid transparent; border-image: linear-gradient(90deg, var(--mag), var(--cyan)) 1; }
+  #nextlive { background: rgba(10,5,34,.82); }
+  /* splash: logo over a neon grid horizon */
+  #start { overflow: hidden; justify-content: center; gap: 3vh; padding: 0 0 7vh;
+    background: radial-gradient(ellipse 85% 42% at 50% 100%, rgba(255,43,176,.42), transparent 72%), radial-gradient(ellipse 55% 38% at 50% 0%, rgba(53,200,255,.2), transparent 72%), linear-gradient(180deg, #06021a 0%, #12053a 58%, #2a0a52 100%); }
+  #start::before { content: ""; position: absolute; left: -60%; right: -60%; bottom: 0; height: 46%;
+    background: repeating-linear-gradient(90deg, rgba(255,43,176,.6) 0 2px, transparent 2px 8vw), repeating-linear-gradient(0deg, rgba(53,200,255,.55) 0 2px, transparent 2px 5.5vh);
+    transform: perspective(36vh) rotateX(66deg); transform-origin: 50% 100%; -webkit-mask-image: linear-gradient(0deg, #000 8%, transparent 100%); mask-image: linear-gradient(0deg, #000 8%, transparent 100%); }
+  #start > * { position: relative; z-index: 1; }
+  #start .logo { height: 34vh; width: auto; filter: drop-shadow(0 0 3.4vh rgba(255,43,176,.55)) drop-shadow(0 0 5vh rgba(53,200,255,.3)); }
+  #start p { color: var(--lav); text-shadow: 0 0 1vh rgba(0,0,0,.8); }
+  #start .go { border: 3px solid transparent; border-image: linear-gradient(90deg, var(--mag), var(--cyan)) 1; color: #fff; background: rgba(10,5,34,.6); box-shadow: 0 0 2.4vh rgba(255,43,176,.4); }
 </style>
 </head>
 <body>
 <video id="v" playsinline></video>
 <video id="v2" playsinline></video>
-<div class="layer" id="wx"><div id="wxhead"><span id="wxtitle">LOCAL FORECAST</span><span id="wxclock"></span></div><div id="wxbody"></div><div id="wxfoot"><span id="wxpage"></span><span>BACKWHENTV WEATHER</span></div></div>
+<div class="layer" id="wx"><div id="wxhead"><span id="wxtitle">LOCAL FORECAST</span><span id="wxclock"></span></div><div id="wxbody"></div><div id="wxfoot"><span id="wxpage"></span><span>LTN TV</span></div></div>
 <div class="layer" id="ltn"><div id="ltnhead"><span id="ltntitle">LOVE THY NERD</span><span id="ltnclock"></span></div><div id="ltnbody"></div><div id="ltnfoot"><span id="ltnpage"></span><span>LOVETHYNERD.COM</span></div></div>
 <div class="layer" id="yt"><iframe id="ytf" allow="autoplay; encrypted-media"></iframe></div>
 <div class="layer" id="tw"><div id="twp"></div></div>
@@ -153,7 +198,7 @@
 </div>
 <div class="layer" id="settings"><div id="shead"><span>SETTINGS</span><span id="sver"></span></div><div id="srows"></div><div id="shelp"></div></div>
 <div class="layer" id="digits"></div>
-<div class="layer" id="start"><h1>BackWhenTV</h1><p>Cable TV, the way you remember it.</p><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; S = settings &middot; Esc = back</p></div>
+<div class="layer" id="start"><img class="logo" src="ltn-wordmark.png" alt="Love Thy Nerd"><div class="go">LOADING THE GUIDE...</div><p>F = fullscreen &middot; Enter = guide &middot; Up/Down = channels &middot; 0-9 = go to channel &middot; M = mute &middot; D = NDI output &middot; S = settings &middot; Esc = back</p></div>
 
 <script src="../node_modules/hls.js/dist/hls.min.js"></script>
 <script src="ltn.js"></script>

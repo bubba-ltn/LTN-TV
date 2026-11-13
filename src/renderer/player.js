@@ -1,4 +1,4 @@
-// BackWhenTV for Windows: guide, Internet Archive channels (on the shared clock), live Pluto channels (hls.js), the weather channel,
+// LTN TV for Windows (built from the BackWhenTV player): the Love Thy Nerd channels, the guide, settings, NDI output.
 // and our own bumper clips covering Pluto's looping placeholder. Same rules as the Android app.
 const BASE = "https://backwhen.stream";
 const NDI_MODE = new URLSearchParams(location.search).has("ndi"); // the hidden 1920x1080 copy that feeds NDI
@@ -11,7 +11,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "BackWhenTV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "LTN TV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -95,14 +95,16 @@ function nowLine(ch, nowSec) {
 
 async function boot() {
   await loadS();
-  const [lu, all] = await Promise.all([jget("/api/lineup"), jget("/api/schedules?pods=1")]);
-  anchor = all.anchor;
-  schedules = all.schedules;
-  channels = lu.channels.filter((c) => c.kind !== "board" && (c.kind === "pluto" || c.kind === "weather" || schedules[c.id])).sort((a, b) => a.num - b.num);
+  channels = [];
+  if (!LTN.ltnOnly) { // the original BackWhenTV lineup; LTN TV leaves it out
+    const [lu, all] = await Promise.all([jget("/api/lineup"), jget("/api/schedules?pods=1")]);
+    anchor = all.anchor;
+    schedules = all.schedules;
+    channels = lu.channels.filter((c) => c.kind !== "board" && (c.kind === "pluto" || c.kind === "weather" || schedules[c.id])).sort((a, b) => a.num - b.num);
+  }
   injectLtnChannels(); // our own Love Thy Nerd channels (ltn.js)
   ltnStart();
-  jget("/api/epg").then((e) => { epg = e.programs || {}; if (mode === "guide") renderGuide(); }).catch(() => {});
-  loadClips();
+  if (!LTN.ltnOnly) { jget("/api/epg").then((e) => { epg = e.programs || {}; if (mode === "guide") renderGuide(); }).catch(() => {}); loadClips(); }
   const last = localStorage.getItem("bw-last");
   let ti = S.startChannel ? channels.findIndex((c) => c.num === S.startChannel) : -1;
   if (ti < 0) ti = channels.findIndex((c) => c.id === last);
@@ -423,7 +425,7 @@ const usage = (() => {
   let cur = null, since = 0;
   const flushCur = () => { if (cur && started) { const m = Math.round((Date.now() - since) / 60000); if (m > 0) { watched[cur] = (watched[cur] || 0) + m; since += m * 60000; } } };
   setInterval(() => {
-    if (NDI_MODE) return; // the hidden NDI copy is not a viewer
+    if (NDI_MODE || LTN.ltnOnly) return; // the hidden NDI copy is not a viewer, and LTN TV sends no usage statistics
     flushCur();
     const body = JSON.stringify({ id, p: "windows", v: VERSION, w: watched });
     fetch(BASE + "/api/ev", { method: "POST", headers: { "Content-Type": "application/json" }, body }).then(() => { for (const k of Object.keys(watched)) delete watched[k]; }).catch(() => {});
@@ -532,7 +534,7 @@ function renderGuide() {
 }
 function guideInfo(ch, p, now) {
   if (!p) return;
-  if (ltnIsOwn(ch)) { // always-on channels have no schedule: say what is on, and whether it is live
+  if (ltnIsOwn(ch) && !p.sched) { // channels without slots: say what is on, and whether it is live
     $("#gtitle").textContent = p.t;
     $("#gbar").style.display = "none";
     $("#gleft").textContent = p.live ? "\u25CF LIVE NOW" : "ALWAYS ON";
@@ -546,8 +548,8 @@ function guideInfo(ch, p, now) {
   $("#gbar").style.display = live ? "block" : "none";
   if (live) $("#gbar").firstChild.style.width = Math.min(100, Math.max(0, (now - p.s) / (p.e - p.s) * 100)) + "%";
   $("#gleft").textContent = live ? minsText(p.e - now) + " left" : "Starts in " + minsText(p.s - now);
-  $("#gmeta").textContent = [ch.num + "  " + ch.name, clockL(p.s) + " - " + clockL(p.e), minsText(p.e - p.s), p.sub && !p.filler ? p.sub : ""].filter(Boolean).join("  •  ");
-  $("#gdesc").textContent = p.filler ? "" : (ch.blurb || "");
+  $("#gmeta").textContent = [ch.num + "  " + ch.name, clockL(p.s) + " - " + clockL(p.e), minsText(p.e - p.s), p.sub && !p.filler && !p.sched ? p.sub : ""].filter(Boolean).join("  •  ");
+  $("#gdesc").textContent = p.next ? "UP NEXT: " + p.next.t + "  \u2022  " + clockL(p.next.s) + " - " + clockL(p.next.e) : (p.filler ? "" : (ch.blurb || ""));
   $("#gtags").textContent = (isFav(ch.id) ? "\u2605 FAVORITE" + (ch.cat ? "  \u2022  " : "") : "") + (ch.cat || "");
 }
 function gFit() {
@@ -641,7 +643,7 @@ function typeDigit(d) {
     const n = +digits; digits = ""; el.style.display = "none";
     const i = channels.findIndex((c) => c.num === n);
     if (i >= 0) { tune(i); if (mode === "guide") setMode("tv"); }
-  }, digits.length >= 2 ? 700 : 1800);
+  }, channels.some((c) => String(c.num).startsWith(digits) && String(c.num) !== digits) ? (digits.length >= 2 ? 700 : 1800) : 300);
 }
 
 /* ---------- volume ---------- */
@@ -670,7 +672,7 @@ async function toggleNdi() {
 if (!NDI_MODE && window.bw && window.bw.onNdiStatus) window.bw.onNdiStatus((r) => {
   ndiOn = !!r.on;
   if (r.error) { console.error("NDI:", r.error); flash("NDI UNAVAILABLE"); }
-  else flash(ndiOn ? "NDI ON: " + (r.name || "BackWhenTV") : "NDI OFF");
+  else flash(ndiOn ? "NDI ON: " + (r.name || "LTN TV") : "NDI OFF");
   if (settingsOpen) renderSettings();
   if (ndiOn) syncOut(true);
 });
@@ -726,7 +728,7 @@ const settingRows = () => [
   { l: "MUTE NDI AUDIO", v: () => onoff(S.muteNdi), tog: () => setS({ muteNdi: !S.muteNdi }) },
   { l: "START NDI WITH THE APP", v: () => onoff(S.ndiOnStart), tog: () => setS({ ndiOnStart: !S.ndiOnStart }) },
   { l: "NDI AUDIO OFFSET (MS, + = LATER)", v: () => (S.ndiAudioOffset > 0 ? "+" : "") + S.ndiAudioOffset, adj: (d) => setS({ ndiAudioOffset: Math.max(-1000, Math.min(1000, (S.ndiAudioOffset || 0) + d * 10)) }) },
-  { l: "NDI SOURCE NAME", v: () => S.ndiName, edit: { init: () => S.ndiName, max: 32, set: (t) => setS({ ndiName: t.trim() || "BackWhenTV" }) } },
+  { l: "NDI SOURCE NAME", v: () => S.ndiName, edit: { init: () => S.ndiName, max: 32, set: (t) => setS({ ndiName: t.trim() || "LTN TV" }) } },
   { l: "START FULLSCREEN (NEXT LAUNCH)", v: () => onoff(S.startFullscreen), tog: () => setS({ startFullscreen: !S.startFullscreen }) },
   { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
   { l: "CLOSE BUTTON GOES TO TRAY", v: () => onoff(S.closeToTray), tog: () => setS({ closeToTray: !S.closeToTray }) },
@@ -735,8 +737,6 @@ const settingRows = () => [
     edit: { init: () => String(S.startChannel || ""), digits: true, max: 3, set: (t) => { const n = +t; if (!t) return setS({ startChannel: 0 }); if (channels.some((x) => x.num === n)) setS({ startChannel: n }); else flash("NO SUCH CHANNEL"); } } },
   { l: "FAVORITES ONLY (GUIDE, UP/DOWN)", v: () => onoff(S.favOnly) + "  (" + S.favorites.length + " SAVED)", tog: () => setS({ favOnly: !S.favOnly }) },
   { l: "FAVORITE THE CURRENT CHANNEL", v: () => (channels[tuned] ? (isFav(channels[tuned].id) ? "★ YES" : "NO") : ""), tog: () => toggleFav(channels[tuned] && channels[tuned].id) },
-  { l: "WEATHER LOCATION", v: () => (S.wxMode === "zip" ? "ZIP CODE" : "AUTO (BY INTERNET)"), tog: () => { setS({ wxMode: S.wxMode === "zip" ? "auto" : "zip" }); wxChanged(); } },
-  { l: "WEATHER ZIP CODE (US)", v: () => S.wxZip || "NOT SET", edit: { init: () => S.wxZip, digits: true, max: 5, set: (t) => { if (t && !/^\d{5}$/.test(t)) return flash("ENTER A 5 DIGIT ZIP"); setS({ wxZip: t, wxMode: t ? "zip" : "auto" }); wxChanged(); } } },
   { l: "TOGGLE FULLSCREEN NOW", v: () => "ENTER", tog: () => toggleFs() },
   { l: "CLOSE SETTINGS", v: () => "", tog: () => closeSettings() },
 ];

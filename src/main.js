@@ -1,4 +1,4 @@
-// BackWhenTV for Windows: a window around the player page in renderer/, plus settings, a tray icon and an NDI output.
+// LTN TV for Windows: a window around the player page in renderer/, plus settings, a tray icon and an NDI output.
 // Keyboard and mouse only. The one job the shell does that a browser can't: Pluto's streams only answer app-like requests and send no CORS
 // headers, so for those hosts we send the same user agent the Android app uses and allow the player page to read the response.
 const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, screen } = require("electron");
@@ -32,7 +32,7 @@ const DEFAULTS = {
   muteWindow: false,      // silence the app's own speakers
   muteNdi: false,         // silence the NDI audio (independent of the window)
   ndiOnStart: false,      // start NDI output when the app starts
-  ndiName: "BackWhenTV",  // NDI source name (your PC name is added in front)
+  ndiName: "LTN TV",      // NDI source name (your PC name is added in front)
   ndiAudioOffset: 0,      // milliseconds: positive delays the NDI audio against the picture, negative advances it
   startFullscreen: true,  // open fullscreen, or in a normal window
   minimizeToTray: false,  // minimizing hides the window to the tray icon
@@ -48,7 +48,13 @@ const DEFAULTS = {
 let S = { ...DEFAULTS };
 const settingsFile = () => path.join(app.getPath("userData"), "settings.json");
 function loadSettings() {
-  try { const j = JSON.parse(fs.readFileSync(settingsFile(), "utf8")); for (const k of Object.keys(DEFAULTS)) if (k in j && typeof j[k] === typeof DEFAULTS[k]) S[k] = j[k]; } catch { /* first run */ }
+  const read = (file) => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } };
+  let j = read(settingsFile());
+  if (!j) { // first run of LTN TV: bring over what the BackWhenTV app had saved (volume, favorites, tray options...)
+    j = read(path.join(app.getPath("appData"), "BackWhenTV", "settings.json"));
+    if (j && j.ndiName === "BackWhenTV") j.ndiName = "LTN TV";
+  }
+  if (j) for (const k of Object.keys(DEFAULTS)) if (k in j && typeof j[k] === typeof DEFAULTS[k]) S[k] = j[k];
 }
 let saveT;
 function saveSettings() {
@@ -106,7 +112,7 @@ let win, tray = null, quitting = false;
 function showWin() { if (!win) return; win.show(); if (win.isMinimized()) win.restore(); win.focus(); }
 function create() {
   win = new BrowserWindow({
-    width: 1280, height: 720, backgroundColor: "#000000", autoHideMenuBar: true, fullscreen: !!S.startFullscreen, title: "BackWhenTV",
+    width: 1280, height: 720, backgroundColor: "#000000", autoHideMenuBar: true, fullscreen: !!S.startFullscreen, title: "LTN TV",
     icon: path.join(__dirname, "icon.png"),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, webSecurity: false, backgroundThrottling: false },
   });
@@ -127,11 +133,11 @@ function updateTray() {
   if (!want) { if (tray) { tray.destroy(); tray = null; } if (win && !win.isVisible()) showWin(); return; }
   if (!tray) {
     tray = new Tray(nativeImage.createFromPath(path.join(__dirname, "icon.png")).resize({ width: 16, height: 16 }));
-    tray.setToolTip("BackWhenTV");
+    tray.setToolTip("LTN TV");
     tray.on("click", showWin);
   }
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "Show BackWhenTV", click: showWin },
+    { label: "Show LTN TV", click: showWin },
     { type: "separator" },
     { label: "Mute window", type: "checkbox", checked: !!S.muteWindow, click: (m) => { S.muteWindow = m.checked; applySettings(); } },
     { label: "Mute NDI", type: "checkbox", checked: !!S.muteNdi, click: (m) => { S.muteNdi = m.checked; applySettings(); } },
@@ -184,12 +190,12 @@ async function ndiStart() {
   try { grandiose = require("@stagetimerio/grandiose"); } catch (e) { log("ndi: library failed to load", e); throw new Error("NDI library not available: " + e.message); }
   // No NDI clock: frames go out the moment they are painted, stamped with that moment. Audio blocks are stamped the same way, so a receiver
   // can line the two up instead of guessing from arrival time.
-  const sender = await grandiose.send({ name: S.ndiName || "BackWhenTV", clockVideo: false, clockAudio: false });
+  const sender = await grandiose.send({ name: S.ndiName || "LTN TV", clockVideo: false, clockAudio: false });
   log("ndi: sender up", sender.sourcename());
   // On a scaled desktop an offscreen window renders at (size x scale), so ask for 1920/scale to get exactly 1920 pixels out
   const sf = (screen.getPrimaryDisplay() || {}).scaleFactor || 1;
   const nw = new BrowserWindow({
-    width: Math.round(NDI_W / sf), height: Math.round(NDI_H / sf), useContentSize: true, show: false, frame: false, backgroundColor: "#000000", title: "BackWhenTV NDI",
+    width: Math.round(NDI_W / sf), height: Math.round(NDI_H / sf), useContentSize: true, show: false, frame: false, backgroundColor: "#000000", title: "LTN TV NDI",
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, webSecurity: false, backgroundThrottling: false, offscreen: true },
   });
   const st = { sender, grandiose, win: nw, running: true, last: null, pending: null, sending: false, lastPaint: 0, timer: null, audioBusy: false, frames: 0 };
