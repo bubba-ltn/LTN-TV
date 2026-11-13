@@ -1,7 +1,7 @@
 {
   "name": "backwhentv-windows",
   "productName": "BackWhenTV",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "BackWhenTV for Windows: cable TV, the way you remember it.",
   "main": "main.js",
   "author": "BackWhenTV",
@@ -11,7 +11,8 @@
     "dist": "electron-builder --win nsis portable"
   },
   "dependencies": {
-    "hls.js": "^1.5.0"
+    "hls.js": "^1.5.0",
+    "@stagetimerio/grandiose": "^0.2.1"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -21,17 +22,34 @@
     "appId": "stream.backwhen.tv",
     "productName": "BackWhenTV",
     "icon": "icon.png",
-    "directories": { "output": "dist" },
+    "directories": {
+      "output": "dist"
+    },
     "files": [
       "main.js",
       "preload.js",
       "icon.png",
       "renderer/**/*",
       "node_modules/hls.js/dist/hls.min.js",
-      "node_modules/hls.js/package.json"
+      "node_modules/hls.js/package.json",
+      "node_modules/@stagetimerio/grandiose/dist/**/*",
+      "node_modules/@stagetimerio/grandiose/package.json"
     ],
-    "win": { "target": ["nsis", "portable"] },
-    "nsis": { "artifactName": "${productName}-Setup-${version}.${ext}", "oneClick": true },
-    "portable": { "artifactName": "${productName}-Portable-${version}.${ext}" }
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "oneClick": true
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "asarUnpack": [
+      "node_modules/@stagetimerio/grandiose/dist/**"
+    ]
   }
 }

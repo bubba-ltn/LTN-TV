@@ -565,6 +565,34 @@ function setVol(dv) {
 function toggleMute() { muted = !muted; v.muted = muted || swapActive; v2.muted = muted; flash(muted ? "MUTE" : "VOLUME " + Math.round(v.volume * 100)); }
 v.volume = +(localStorage.getItem("bw-vol") ?? 0.8);
 
+/* ---------- NDI output (desktop app): the window as video, the program audio as sound ---------- */
+let ndiOn = false, ndiCtx = null;
+async function ndiAudioStart() {
+  if (ndiCtx) { await ndiCtx.resume(); return false; }
+  v.crossOrigin = v2.crossOrigin = "anonymous"; // needed so the audio graph is allowed to read the media (takes effect on the next load)
+  ndiCtx = new AudioContext({ sampleRate: 48000 });
+  await ndiCtx.audioWorklet.addModule("ndi-worklet.js");
+  const mix = ndiCtx.createGain();
+  ndiCtx.createMediaElementSource(v).connect(mix);
+  ndiCtx.createMediaElementSource(v2).connect(mix);
+  mix.connect(ndiCtx.destination); // what you hear
+  const tap = new AudioWorkletNode(ndiCtx, "ndi-tap", { numberOfOutputs: 1, outputChannelCount: [2] });
+  tap.port.onmessage = (e) => { if (ndiOn) window.bw.ndiAudio(e.data, ndiCtx.sampleRate, 1024); };
+  mix.connect(tap); tap.connect(ndiCtx.destination); // the tap outputs silence; it only has to be in the graph to be pulled
+  return true;
+}
+async function toggleNdi() {
+  if (!window.bw || !window.bw.ndiToggle) return flash("NDI: DESKTOP APP ONLY");
+  flash(ndiOn ? "NDI OFF" : "NDI STARTING...");
+  let r;
+  try { r = await window.bw.ndiToggle(); } catch (e) { r = { on: false, error: String(e) }; }
+  ndiOn = !!r.on;
+  if (r.error) { console.error("NDI:", r.error); return flash("NDI UNAVAILABLE"); }
+  if (!ndiOn) return flash("NDI OFF");
+  flash("NDI ON: " + (r.name || "BackWhenTV"));
+  try { if (await ndiAudioStart() && started) tune(tuned, false); } catch (e) { console.error("NDI audio:", e); } // reload the channel once so its audio flows through the tap
+}
+
 /* ---------- input ---------- */
 const toggleFs = () => (window.bw ? window.bw.fullscreen() : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().catch(() => {}));
 function begin() {
@@ -588,6 +616,7 @@ addEventListener("keydown", (e) => {
   else if (k === "Enter" || k === " ") { if (g) { tune(gCh); setMode("tv"); } else setMode("guide"); }
   else if (k === "g" || k === "G") setMode(g ? "tv" : "guide");
   else if (k === "i" || k === "I") banner();
+  else if (k === "d" || k === "D") toggleNdi();
   else if (k === "m" || k === "M") toggleMute();
   else if (k === "+" || k === "=") setVol(0.05);
   else if (k === "-" || k === "_") setVol(-0.05);
