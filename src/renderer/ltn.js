@@ -9,6 +9,9 @@ const LTN = {
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
   twitch: "lovethynerd",
+  // Spotify playlists to list on LTN NEWS (playlist links or ids). Spotify gives apps the names and covers of playlists they are told about, but not the
+  // list of playlists on a profile, so they are listed here, or pasted in Settings ("Spotify playlist links").
+  spotify: { user: "31ejau6exrk7de732manwvlcxx3u", playlists: ["75LjwYz9jLi8VY2iPe15Kq"] },
   playsId: "UC8eB_7RaI0sKhVbo8abjhEw", // the LTN Plays channel (@LTNPlaysGames / @LoveThyNerd): LTN TWITCH shows what it is playing while we are not live
   // The stream schedule, weekly, in this time zone. day: 0 = Sunday ... 6 = Saturday. Twitch only gives its schedule to apps with a key, so it is kept here.
   schedule: { tz: "America/Chicago", slots: [
@@ -104,7 +107,7 @@ async function ltnYoutube() {
 }
 async function ltnSite() {
   const doc = await ltnXml(LTN.site);
-  return [...doc.getElementsByTagName("item")].slice(0, 6).map((it) => {
+  return [...doc.getElementsByTagName("item")].slice(0, 9).map((it) => {
     const body = ltnTag(it, "content:encoded") || ltnTag(it, "description");
     const img = (body.match(/src="(https:[^"]+?\.(?:jpe?g|png|webp)[^"]*)"/i) || [])[1] || "";
     const text = ltnTag(it, "description").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").replace(/The post .* appeared first on .*$/i, "").trim();
@@ -139,10 +142,29 @@ async function ytLive(id) {
   } finally { ctl.abort(); }
   return { live: false };
 }
+function ltnSpotifyIds() {
+  const text = (S.spotifyLinks || "").trim();
+  const src = text ? text.split(/[\s,]+/) : LTN.spotify.playlists;
+  const ids = [];
+  for (const x of src) { const m = /^(?:https?:\/\/open\.spotify\.com\/(?:embed\/)?playlist\/|spotify:playlist:)?([A-Za-z0-9]{22})(?:[?#\/].*)?$/.exec((x || "").trim()); if (m && !ids.includes(m[1])) ids.push(m[1]); }
+  return ids;
+}
+async function ltnSpotify() {
+  const ids = ltnSpotifyIds(), out = [];
+  await Promise.all(ids.map(async (id) => {
+    try {
+      const r = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent("https://open.spotify.com/playlist/" + id), { cache: "no-store" });
+      if (!r.ok) return;
+      const j = await r.json();
+      out.push({ id, t: j.title || "", img: j.thumbnail_url || "", i: ids.indexOf(id) });
+    } catch { /* skip this one */ }
+  }));
+  return out.sort((a, b) => a.i - b.i);
+}
 async function ltnLoad(force) {
   if (!force && ltnData && Date.now() - ltnAt < LTN.refreshMs) return;
-  const [yt, site, tw] = await Promise.allSettled([ltnYoutube(), ltnSite(), ltnTwitch()]);
-  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null };
+  const [yt, site, tw, sp] = await Promise.allSettled([ltnYoutube(), ltnSite(), ltnTwitch(), ltnSpotify()]);
+  ltnData = { yt: yt.value || (ltnData && ltnData.yt) || null, site: site.value || (ltnData && ltnData.site) || null, spotify: sp.value || (ltnData && ltnData.spotify) || [] };
   if (tw.value) ltnTw = tw.value;
   ltnAt = Date.now();
 }
@@ -276,22 +298,29 @@ const ago = (at) => {
 };
 function ltnPages() {
   const d = ltnData, pages = [];
-  pages.push(() => {
-    const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
-    return ["LIVE NOW", live.length ? live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("") : `<div class="lmsg">Nothing is live right now.<br><span class="lsub">twitch.tv/${esc(LTN.twitch)}</span></div>`];
-  });
-  if (ltnTw) pages.push(() => {
+  // anything about being live is only here while something is live
+  const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
+  if (live.length) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
+  if (ltnTw && ltnTw.live) pages.push(() => {
     const t = ltnTw;
-    const img = t.live ? `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">` : `<div class="loff">OFFLINE</div>`;
-    return ["TWITCH", `<div class="ltw"><div class="ltwimg">${img}</div><div class="ltwtxt"><div class="lstat ${t.live ? "live" : ""}">${t.live ? "&#9679; LIVE NOW" : "NOT LIVE RIGHT NOW"}</div><div class="ltitle">${esc(t.title || "")}</div><div class="lsub">${esc([t.game, t.live && t.uptime ? "live for " + t.uptime : ""].filter(Boolean).join("  •  "))}</div><div class="lsub">twitch.tv/${esc(LTN.twitch)}</div></div></div>`];
+    const img = `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">`;
+    return ["TWITCH", `<div class="ltw"><div class="ltwimg">${img}</div><div class="ltwtxt"><div class="lstat live">&#9679; LIVE NOW</div><div class="ltitle">${esc(t.title || "")}</div><div class="lsub">${esc([t.game, t.uptime ? "live for " + t.uptime : ""].filter(Boolean).join("  •  "))}</div><div class="lsub">twitch.tv/${esc(LTN.twitch)}</div></div></div>`];
   });
-  if (d && d.site && d.site.length) for (let i = 0; i < d.site.length; i += 3) pages.push(() => ["LOVETHYNERD.COM", d.site.slice(i, i + 3).map((p) => `<div class="lpost">${p.img ? `<img src="${esc(p.img)}" onerror="this.style.display='none'">` : ""}<div class="lptxt"><div class="lpt">${esc(p.t)}</div><div class="lps">${esc([p.cat, p.by, ago(p.at)].filter(Boolean).join("  •  "))}</div><div class="lpx">${esc(p.text)}</div></div></div>`).join("")]);
+  // a small picture card: used for website posts and new videos, nine to a page (3 x 3)
+  const card = (img, title, meta) => {
+    const pic = img ? `<img src="${esc(img)}" onerror="this.style.visibility='hidden'">` : `<div class="lph">LTN</div>`;
+    return `<div class="lc">${pic}<div class="lct">${esc(title)}</div><div class="lcs">${esc(meta)}</div></div>`;
+  };
+  if (d && d.site && d.site.length) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
     const vids = d.yt.videos.slice(0, 18);
-    for (let i = 0; i < vids.length; i += 6) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid">${vids.slice(i, i + 6).map((v) => `<div class="lc"><img src="https://i.ytimg.com/vi/${esc(v.id)}/mqdefault.jpg" onerror="this.style.visibility='hidden'"><div class="lct">${esc(v.t)}</div><div class="lcs">${esc(v.show)}  •  ${ago(v.at)}</div></div>`).join("")}</div>`]);
-    for (let i = 0; i < d.yt.shows.length; i += 6) pages.push(() => ["OUR SHOWS", d.yt.shows.slice(i, i + 6).map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")]);
+    for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, v.show + "  •  " + ago(v.at))).join("")}</div>`]);
+    // every show on one page
+    if (d.yt.shows.length) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
   }
-  return pages;
+  // our Spotify playlists, five across
+  if (d && d.spotify && d.spotify.length) for (let i = 0; i < d.spotify.length; i += 10) pages.push(() => ["SPOTIFY PLAYLISTS", `<div class="lspot">${d.spotify.slice(i, i + 10).map((s) => `<div class="sp"><img src="${esc(s.img)}" onerror="this.style.visibility='hidden'"><div class="spt">${esc(s.t)}</div></div>`).join("")}</div>`]);
+  return pages.length ? pages : [() => ["LTN NEWS", `<div class="lmsg">Getting the latest...</div>`]];
 }
 function ltnDraw() {
   const pages = ltnPages();

@@ -11,7 +11,7 @@ const totals = {};
 const bad = new Set();
 
 /* ---------- settings (stored by the main process; the browser fallback keeps them in localStorage) ---------- */
-let S = { twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "LTN TV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
+let S = { spotifyLinks: "", twitchTrailer: "", volume: 0.8, muteWindow: false, muteNdi: false, ndiOnStart: false, ndiName: "LTN TV", ndiAudioOffset: 0, startFullscreen: true, minimizeToTray: false, closeToTray: false, launchAtLogin: false, startChannel: 0, favorites: [], favOnly: false, wxMode: "auto", wxZip: "" };
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 function setS(p) {
   Object.assign(S, p);
@@ -737,6 +737,7 @@ const settingRows = () => [
     edit: { init: () => String(S.startChannel || ""), digits: true, max: 3, set: (t) => { const n = +t; if (!t) return setS({ startChannel: 0 }); if (channels.some((x) => x.num === n)) setS({ startChannel: n }); else flash("NO SUCH CHANNEL"); } } },
   { l: "FAVORITES ONLY (GUIDE, UP/DOWN)", v: () => onoff(S.favOnly) + "  (" + S.favorites.length + " SAVED)", tog: () => setS({ favOnly: !S.favOnly }) },
   { l: "FAVORITE THE CURRENT CHANNEL", v: () => (channels[tuned] ? (isFav(channels[tuned].id) ? "★ YES" : "NO") : ""), tog: () => toggleFav(channels[tuned] && channels[tuned].id) },
+  { l: "SPOTIFY PLAYLIST LINKS (LTN NEWS)", v: () => { const n = ltnSpotifyIds().length; return n + (n === 1 ? " PLAYLIST" : " PLAYLISTS") + (S.spotifyLinks ? " (YOURS)" : ""); }, edit: { init: () => S.spotifyLinks, max: 4000, set: (t) => { setS({ spotifyLinks: t.trim() }); ltnLoad(true).catch(() => {}).then(() => { if (channels[tuned] && channels[tuned].kind === "ltn") ltnDraw(); }); } } },
   { l: "TOGGLE FULLSCREEN NOW", v: () => "ENTER", tog: () => toggleFs() },
   { l: "CLOSE SETTINGS", v: () => "", tog: () => closeSettings() },
 ];
