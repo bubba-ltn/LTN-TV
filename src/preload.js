@@ -10,5 +10,5 @@ contextBridge.exposeInMainWorld("bw", {
   onUpdate: (ev, cb) => ipcRenderer.on(ev, (e, d) => cb(d)),
   updateCheck: () => ipcRenderer.send("update-check"),
   updateGo: () => ipcRenderer.send("update-go"),
-  version: "2.5.3",
+  version: "2.6.0",
 });
