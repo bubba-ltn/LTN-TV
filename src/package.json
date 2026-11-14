@@ -1,7 +1,7 @@
 {
   "name": "ltn-tv",
   "productName": "LTN TV",
-  "version": "2.6.1",
+  "version": "2.6.2",
   "description": "LTN TV: Love Thy Nerd, always on.",
   "main": "main.js",
   "author": "Love Thy Nerd",
@@ -27,6 +27,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "missions.js",
       "icon.png",
       "renderer/**/*",
       "node_modules/hls.js/dist/hls.min.js",

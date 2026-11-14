@@ -5,6 +5,7 @@ const { app, BrowserWindow, ipcMain, session, shell, Tray, Menu, nativeImage, di
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
+const { fetchMissions } = require("./missions");
 
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -66,6 +67,12 @@ function applySettings() {
   broadcast();
   saveSettings();
 }
+// the mission trips shown in LTN News: read from the public missions site by a hidden window (see missions.js); the page cannot ask for any other address
+let missionsBusy = null;
+ipcMain.handle("missions-fetch", async () => {
+  if (!missionsBusy) missionsBusy = fetchMissions().catch((e) => { log("missions fetch failed", e.message); return null; }).finally(() => { missionsBusy = null; });
+  return missionsBusy;
+});
 ipcMain.handle("settings-get", () => S);
 ipcMain.handle("settings-set", (e, patch) => {
   if (patch && typeof patch === "object") for (const k of Object.keys(DEFAULTS)) if (k in patch && typeof patch[k] === typeof DEFAULTS[k]) S[k] = patch[k];
