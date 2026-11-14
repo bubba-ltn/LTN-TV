@@ -9,7 +9,7 @@ const LTN = {
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
   outreach: "https://lovethynerd.com/outreach/",
-  remote: "", // the admin backend's public /config.json (see ltn-tv-admin); empty = built-in lineup only
+  remote: "https://ltn-tv-admin.ltn-tv-admin.workers.dev/config.json", // the admin backend's public /config.json (see ltn-tv-admin); empty = built-in lineup only
   twitch: "lovethynerd",
   // Spotify playlists listed on LTN NEWS: [id, title], in the order the profile page shows them (open.spotify.com/user/${user}/playlists). Spotify has no
   // keyless way for an app to ask a profile for its list, so this was read from the page; new playlists can be added by pasting links in Settings
