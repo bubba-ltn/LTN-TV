@@ -164,9 +164,16 @@ async function ltnXml(url) {
 async function ltnYoutube() {
   const out = [], shows = [];
   await Promise.allSettled(LTN.shows.map(async (s) => {
-    const doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?playlist_id=UULF" + s.id.slice(2));
-    const show = ltnTag(doc.getElementsByTagName("author")[0] || doc.documentElement, "name") || s.name;
-    let vids = [...doc.getElementsByTagName("entry")].slice(0, 5).map((e) => ({ id: ltnTag(e, "yt:videoId"), t: ltnTag(e, "title"), at: Date.parse(ltnTag(e, "published")) || 0, show, cid: s.id }));
+    let vids;
+    try { // the channel's RSS feed: exact dates
+      const doc = await ltnXml("https://www.youtube.com/feeds/videos.xml?playlist_id=UULF" + s.id.slice(2));
+      const show = ltnTag(doc.getElementsByTagName("author")[0] || doc.documentElement, "name") || s.name;
+      vids = [...doc.getElementsByTagName("entry")].slice(0, 5).map((e) => ({ id: ltnTag(e, "yt:videoId"), t: ltnTag(e, "title"), at: Date.parse(ltnTag(e, "published")) || 0, show, cid: s.id }));
+    } catch { vids = []; }
+    if (!vids.length) { // the feed is down (YouTube has switched it off at times): read the same uploads list from its page instead
+      const now = Date.now();
+      vids = (await ltnFetchList("UULF" + s.id.slice(2))).slice(0, 5).map((v) => ({ id: v.id, t: v.title, at: v.age ? now - v.age : 0, show: s.name, cid: s.id }));
+    }
     out.push(...vids);
     if (vids[0]) shows.push(vids[0]);
   }));
@@ -393,6 +400,7 @@ function ltnPreview(ch) { // the guide's preview box: the thumbnail of what is o
 
 /* ---------- LTN NEWS pages ---------- */
 const ago = (at) => {
+  if (!at) return "";
   const m = Math.max(1, Math.round((Date.now() - at) / 60000));
   if (m < 60) return m + " MIN AGO";
   const h = Math.round(m / 60); if (h < 48) return h + " HR" + (h > 1 ? "S" : "") + " AGO";
@@ -418,7 +426,7 @@ function ltnPages() {
   if (d && d.trips && d.trips.length) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
     const vids = d.yt.videos.slice(0, 18);
-    for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, v.show + "  •  " + ago(v.at))).join("")}</div>`]);
+    for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, [v.show, ago(v.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
     // every show on one page
     if (d.yt.shows.length) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
   }
@@ -484,7 +492,9 @@ async function ltnFetchList(listId) {
           (function w(x) { if (!x || typeof x !== "object") return; if (x.thumbnailBadgeViewModel) badges.push(x.thumbnailBadgeViewModel.text); for (const k in x) w(x[k]); })(l);
           const t = badges.find((b) => /^\d+(:\d+)+$/.test(b || ""));
           const title = (l.metadata && l.metadata.lockupMetadataViewModel && l.metadata.lockupMetadataViewModel.title && l.metadata.lockupMetadataViewModel.title.content) || "";
-          if (t) out.push({ id: l.contentId, len: toSec(t), title });
+          let age = 0; // "10h ago", "3 days ago": roughly when it went up
+          (function w(x) { if (!x || typeof x !== "object" || age) return; if (typeof x.content === "string") { const a = /^(\d+)\s*(second|minute|hour|day|week|month|year|mo|[smhdwy])\w*\s+ago$/i.exec(x.content.trim()); if (a) { const u = a[2].toLowerCase(); age = +a[1] * ({ s: 1e3, second: 1e3, m: 6e4, minute: 6e4, h: 36e5, hour: 36e5, d: 864e5, day: 864e5, w: 6048e5, week: 6048e5, mo: 2592e6, month: 2592e6, y: 31536e6, year: 31536e6 }[u] || 864e5); } } for (const k in x) w(x[k]); })(l.metadata);
+          if (t) out.push({ id: l.contentId, len: toSec(t), title, age });
         }
         for (const k in o) walk(o[k]);
       })(JSON.parse(m[1]));
