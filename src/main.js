@@ -34,7 +34,7 @@ const DEFAULTS = {
   minimizeToTray: false,  // minimizing hides the window to the tray icon
   closeToTray: false,     // the close button hides to the tray instead of quitting
   launchAtLogin: false,   // start with Windows
-  startChannel: 0,        // 0 = the channel you watched last, otherwise a channel number
+  startChannel: 1,        // 0 = the channel you watched last, otherwise a channel number (new installs start on channel 1)
   favorites: [],          // channel ids
   favOnly: false,         // guide and channel up/down use favorites only
   wxMode: "auto",         // weather location: "auto" (by your internet connection) or "zip"
