@@ -9,6 +9,7 @@ const LTN = {
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
   outreach: "https://lovethynerd.com/outreach/",
+  remote: "", // the admin backend's public /config.json (see ltn-tv-admin); empty = built-in lineup only
   twitch: "lovethynerd",
   // Spotify playlists listed on LTN NEWS: [id, title], in the order the profile page shows them (open.spotify.com/user/${user}/playlists). Spotify has no
   // keyless way for an app to ask a profile for its list, so this was read from the page; new playlists can be added by pasting links in Settings
@@ -89,7 +90,7 @@ const LTN = {
   ] },
   music: "IBC3x9Zyo-Q", // background music on LTN NEWS: audio only, from a 24/7 YouTube stream (NESTALGIA: Nintendo music for coding)
   bible: { playlist: "PLibAByUqZ70-6rRTHbRimCrxG7F-PCdSN", first: "QbDIEoXcMw8" },
-  pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000,
+  pageMs: 12000, refreshMs: 10 * 60000, livePollMs: 4 * 60000, remoteMs: 60000,
   // one channel each, in channel-number order (IDs from each channel page's canonical link)
   shows: [
     { id: "UC8eB_7RaI0sKhVbo8abjhEw", name: "LTN PLAYS GAMES", info: "LTN Plays Games, @LTNPlaysGames", hidden: true }, // not a channel of its own: LTN PLAYS GAMES (159) plays it while Twitch is offline
@@ -108,17 +109,20 @@ const LTN = {
   ],
 };
 
-function injectLtnChannels() {
-  const free = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
-  const add = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
-  add({ id: "ltn-latest", num: free(LTN.numLatest), name: "LTN NEWS", kind: "ltn", blurb: "LTN News: who is live, plus the newest from Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
-  add({ id: "ltn-twitch", num: free(LTN.numTwitch), name: "LTN PLAYS GAMES", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, and the LTN Plays Games channel on shuffle when we are not." });
-  add({ id: "ltn-bible", num: free(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
+const ltnFree = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
+const ltnAdd = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
+function ltnInjectShows() { // one channel per YouTube show in LTN.shows
   const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
-    add(mk(s, free(s.num)));
+    ltnAdd(mk(s, ltnFree(s.num)));
   }
+}
+function injectLtnChannels() {
+  ltnAdd({ id: "ltn-latest", num: ltnFree(LTN.numLatest), name: "LTN NEWS", kind: "ltn", blurb: "LTN News: who is live, plus the newest from Twitch, the website and every YouTube show. Background music: 24/7 Nintendo music." });
+  ltnAdd({ id: "ltn-twitch", num: ltnFree(LTN.numTwitch), name: "LTN PLAYS GAMES", kind: "twitch", blurb: "twitch.tv/" + LTN.twitch + ": the live stream when we are on, and the LTN Plays Games channel on shuffle when we are not." });
+  ltnAdd({ id: "ltn-bible", num: ltnFree(LTN.numBible), name: "LTN DAILY BIBLE", kind: "yt", yt: { list: LTN.bible.playlist, first: LTN.bible.first, wall: false }, blurb: "The LTN Daily Audio Bible playlist, played through in order." });
+  ltnInjectShows();
   channels.sort((a, b) => a.num - b.num);
 }
 
@@ -308,11 +312,98 @@ async function ltnPollTuned() {
   } catch { return; }
   if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
 }
+/* ---------- remote config: channels, extra news pages, the banner and the stream schedule come from the admin backend ---------- */
+// LTN.remote is the address of the backend's public /config.json. It is polled once a minute, whichever channel is on, so a change published there
+// shows up here by itself. If it cannot be reached the last good copy (kept on this PC) or the built-in lineup is used, so nothing breaks.
+const LTN_SHOWS0 = LTN.shows.slice(), LTN_SCHEDULE0 = LTN.schedule;
+const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num).join(";");
+let ltnCfgVer = 0, ltnCfgSig = ltnShowSig(LTN_SHOWS0.filter((s) => !s.hidden)), ltnRemoteBusy = false;
+const ltnStr = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
+const ltnHttps = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" ? u.href : ""; } catch { return ""; } };
+const ltnDay = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : "");
+function ltnCleanCfg(c) { // never trust what came over the wire: keep only well-formed pieces
+  if (!c || typeof c !== "object") return null;
+  const out = { version: Number(c.version) || 0, shows: null, pages: [], notice: { enabled: false, text: "", push: false }, schedule: null, hide: [] };
+  if (Array.isArray(c.shows)) {
+    const seen = new Set(), list = [];
+    for (const s of c.shows.slice(0, 40)) {
+      if (!s || !/^UC[\w-]{22}$/.test(String(s.id)) || seen.has(s.id)) continue;
+      seen.add(s.id);
+      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length });
+    }
+    if (list.length) out.shows = list;
+  }
+  if (Array.isArray(c.pages)) for (const p of c.pages.slice(0, 30)) {
+    if (!p || p.enabled === false || !ltnStr(p.title, 60)) continue;
+    out.pages.push({ id: ltnStr(p.id, 40), title: ltnStr(p.title, 60).toUpperCase(), body: ltnStr(p.body, 600), image: ltnHttps(p.image), link: ltnStr(p.link, 60), from: ltnDay(p.from), to: ltnDay(p.to) });
+  }
+  if (c.notice && typeof c.notice === "object") out.notice = { enabled: !!c.notice.enabled, text: ltnStr(c.notice.text, 200), push: !!c.notice.push };
+  if (c.schedule && typeof c.schedule === "object") {
+    let ok = true;
+    try { new Intl.DateTimeFormat("en-US", { timeZone: String(c.schedule.tz) }); } catch { ok = false; }
+    if (ok && Array.isArray(c.schedule.slots)) {
+      out.schedule = { tz: String(c.schedule.tz), slots: c.schedule.slots.slice(0, 30).filter((s) => s && Number.isInteger(+s.day) && +s.day >= 0 && +s.day <= 6 && /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s.at)) && +s.mins >= 1 && +s.mins <= 1440).map((s) => ({ day: +s.day, at: String(s.at), mins: +s.mins, title: ltnStr(s.title, 80) })) };
+    }
+  }
+  if (Array.isArray(c.hide)) out.hide = c.hide.map(String).slice(0, 20);
+  return out;
+}
+function ltnRebuildShows() { // the channel list changed: swap the show channels without restarting
+  const curId = channels[tuned] && channels[tuned].id;
+  for (let i = channels.length - 1; i >= 0; i--) if (/^ltn-yt-/.test(channels[i].id)) channels.splice(i, 1);
+  ltnPlaysCh = null;
+  ltnInjectShows();
+  channels.sort((a, b) => a.num - b.num);
+  const ni = channels.findIndex((c) => c.id === curId);
+  if (ni >= 0) tuned = ni;
+  else { tuned = 0; if (started) tune(0); } // the channel being watched was removed
+  ltnLivePoll(); // find out which of the new channels are live
+  if (mode === "guide") renderGuide();
+}
+function ltnRemoteApply(raw, cached) {
+  const c = ltnCleanCfg(raw);
+  if (!c) return;
+  if (!cached && c.version && c.version < ltnCfgVer) return; // an older copy from a slow edge: ignore
+  ltnCfgVer = Math.max(ltnCfgVer, c.version);
+  const list = c.shows || LTN_SHOWS0.filter((s) => !s.hidden);
+  LTN.shows = [...LTN_SHOWS0.filter((s) => s.hidden), ...list];
+  LTN.schedule = c.schedule || LTN_SCHEDULE0;
+  LTN.remotePages = c.pages; LTN.notice = c.notice; LTN.hide = c.hide;
+  const sig = ltnShowSig(list), changed = sig !== ltnCfgSig;
+  ltnCfgSig = sig;
+  if (changed) ltnRebuildShows();
+  if (!cached) {
+    try { localStorage.setItem("ltn-remote", JSON.stringify(raw)); } catch { /* storage blocked */ }
+    const key = c.version + ":" + c.notice.text;
+    let seen = ""; try { seen = localStorage.getItem("ltn-push") || ""; } catch { /* none */ }
+    if (c.notice.enabled && c.notice.push && c.notice.text && seen !== key) { // a pushed notice: shown once over whatever is playing
+      try { localStorage.setItem("ltn-push", key); } catch { /* storage blocked */ }
+      const m = $("#msg"); m.style.fontSize = "4.2vh"; showMsg(c.notice.text);
+      setTimeout(() => { showMsg(""); m.style.fontSize = ""; }, 9000);
+    }
+  }
+  if (started && channels[tuned] && channels[tuned].kind === "ltn") ltnDraw();
+}
+async function ltnRemotePoll() {
+  if (!LTN.remote || ltnRemoteBusy) return;
+  ltnRemoteBusy = true;
+  try { const r = await fetch(LTN.remote, { cache: "no-store" }); if (r.ok) ltnRemoteApply(await r.json(), false); } catch { /* offline or down: keep what we have */ }
+  ltnRemoteBusy = false;
+}
+// the news data (website, YouTube, trips) is refreshed in the background too, not only while LTN News is on screen
+function ltnBackgroundNews() {
+  ltnLoad(true).then(() => { if (started && channels[tuned] && channels[tuned].kind === "ltn") ltnDraw(); }).catch(() => {});
+}
+const ltnPageActive = (p) => { const t = new Date(), d = t.getFullYear() + "-" + String(t.getMonth() + 1).padStart(2, "0") + "-" + String(t.getDate()).padStart(2, "0"); return (!p.from || d >= p.from) && (!p.to || d <= p.to); };
+function ltnNoticeText() { const n = LTN.notice; return n && n.enabled && n.text ? n.text : ""; }
+
 function ltnStart() { // called once the lineup is known
+  try { const c = localStorage.getItem("ltn-remote"); if (c) ltnRemoteApply(JSON.parse(c), true); } catch { /* none yet */ }
+  ltnRemotePoll();
   ltnLoad(false).catch(() => {});
   ltnLivePoll();
   setTimeout(ltnWarm, 20000);
-  ltnPollTimers.push(setInterval(ltnLivePoll, LTN.livePollMs), setInterval(ltnPollTuned, 75000));
+  ltnPollTimers.push(setInterval(ltnLivePoll, LTN.livePollMs), setInterval(ltnPollTuned, 75000), setInterval(ltnRemotePoll, LTN.remoteMs), setInterval(ltnBackgroundNews, LTN.refreshMs));
 }
 
 /* ---------- what the guide, banner and preview say about these channels ---------- */
@@ -408,30 +499,41 @@ const ago = (at) => {
 };
 function ltnPages() {
   const d = ltnData, pages = [];
+  const hid = (k) => (LTN.hide || []).includes(k);
   // anything about being live is only here while something is live
   const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
-  if (live.length) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
-  if (ltnTw && ltnTw.live) pages.push(() => {
+  if (live.length && !hid("live")) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
+  if (ltnTw && ltnTw.live && !hid("twitch")) pages.push(() => {
     const t = ltnTw;
     const img = `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">`;
     return ["TWITCH", `<div class="ltw"><div class="ltwimg">${img}</div><div class="ltwtxt"><div class="lstat live">&#9679; LIVE NOW</div><div class="ltitle">${esc(t.title || "")}</div><div class="lsub">${esc([t.game, t.uptime ? "live for " + t.uptime : ""].filter(Boolean).join("  •  "))}</div><div class="lsub">twitch.tv/${esc(LTN.twitch)}</div></div></div>`];
   });
+  // pages added in the admin backend
+  for (const p of LTN.remotePages || []) {
+    if (!ltnPageActive(p)) continue;
+    pages.push(() => {
+      const img = p.image ? `<div class="ltwimg"><img src="${esc(p.image)}" onerror="this.style.visibility='hidden'"></div>` : "";
+      const lines = (p.body || "").split(/\n+/).filter(Boolean);
+      const txt = lines.map((l, i) => `<div class="${i === 0 && l.length <= 90 ? "ltitle" : "lsub"}">${esc(l)}</div>`).join("") + (p.link ? `<div class="lstat">${esc(p.link)}</div>` : "");
+      return [p.title, img ? `<div class="ltw">${img}<div class="ltwtxt">${txt}</div></div>` : `<div class="lmsg">${txt || esc(p.title)}</div>`];
+    });
+  }
   // a small picture card: used for website posts and new videos, nine to a page (3 x 3)
   const card = (img, title, meta) => {
     const pic = img ? `<img src="${esc(img)}" onerror="this.style.visibility='hidden'">` : `<div class="lph">LTN</div>`;
     return `<div class="lc">${pic}<div class="lct">${esc(title)}</div><div class="lcs">${esc(meta)}</div></div>`;
   };
-  if (d && d.site && d.site.length) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
+  if (d && d.site && d.site.length && !hid("site")) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
   // mission trips, soonest first
-  if (d && d.trips && d.trips.length) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"].filter(Boolean).join("  •  "))).join("")}</div>`]);
+  if (d && d.trips && d.trips.length && !hid("trips")) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
-    const vids = d.yt.videos.slice(0, 18);
+    const vids = hid("youtube") ? [] : d.yt.videos.slice(0, 18);
     for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, [v.show, ago(v.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
     // every show on one page
-    if (d.yt.shows.length) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
+    if (d.yt.shows.length && !hid("shows")) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
   }
   // our Spotify playlists, five across
-  if (d && d.spotify && d.spotify.length) for (let i = 0; i < d.spotify.length; i += 15) pages.push(() => ["SPOTIFY PLAYLISTS", `<div class="lspot">${d.spotify.slice(i, i + 15).map((s) => `<div class="sp"><img src="${esc(s.img)}" onerror="this.style.visibility='hidden'"><div class="spt">${esc(s.t)}</div></div>`).join("")}</div>`]);
+  if (d && d.spotify && d.spotify.length && !hid("spotify")) for (let i = 0; i < d.spotify.length; i += 15) pages.push(() => ["SPOTIFY PLAYLISTS", `<div class="lspot">${d.spotify.slice(i, i + 15).map((s) => `<div class="sp"><img src="${esc(s.img)}" onerror="this.style.visibility='hidden'"><div class="spt">${esc(s.t)}</div></div>`).join("")}</div>`]);
   return pages.length ? pages : [() => ["LTN NEWS", `<div class="lmsg">Getting the latest...</div>`]];
 }
 function ltnDraw() {
@@ -441,6 +543,8 @@ function ltnDraw() {
   $("#ltnbody").innerHTML = html;
   $("#ltnpage").textContent = "PAGE " + ((ltnPage % pages.length) + 1) + " OF " + pages.length;
   $("#ltnclock").textContent = clock(Date.now());
+  const nt = ltnNoticeText(), ne = $("#ltnnote");
+  if (ne) { ne.textContent = nt; ne.classList.toggle("on", !!nt); }
 }
 async function playLtn(ch, gen) {
   loadingOn(false);
@@ -455,7 +559,6 @@ async function playLtn(ch, gen) {
   await reload(false);
   if (gen !== tuneGen) return;
   ltnPageTimer = setInterval(() => { ltnPage++; ltnDraw(); }, LTN.pageMs);
-  ltnRefreshTimer = setInterval(() => reload(true), LTN.refreshMs);
 }
 
 /* ---------- the shared schedule: every show channel is always on, shuffled, and the same for everyone ---------- */
