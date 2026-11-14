@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("bw", {
   fullscreen: () => ipcRenderer.send("fullscreen"),
   quit: () => ipcRenderer.send("quit"),
+  missionTrips: () => ipcRenderer.invoke("missions-fetch"),
   getSettings: () => ipcRenderer.invoke("settings-get"),
   setSettings: (patch) => ipcRenderer.invoke("settings-set", patch),
   onAskQuit: (cb) => ipcRenderer.on("ask-quit", () => cb()),
@@ -10,5 +11,5 @@ contextBridge.exposeInMainWorld("bw", {
   onUpdate: (ev, cb) => ipcRenderer.on(ev, (e, d) => cb(d)),
   updateCheck: () => ipcRenderer.send("update-check"),
   updateGo: () => ipcRenderer.send("update-go"),
-  version: "2.6.1",
+  version: "2.6.2",
 });

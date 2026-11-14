@@ -8,7 +8,7 @@ const LTN = {
   ltnOnly: true, // LTN TV: only the Love Thy Nerd channels are in the lineup (false brings back the BackWhenTV channels)
   numLatest: 1, numBible: 2, numTwitch: 3, // channel numbers: LTN News, LTN Daily Audio Bible, LTN Plays Games; the shows follow from 4
   site: "https://lovethynerd.com/feed",
-  outreach: "https://lovethynerd.com/outreach/",
+  outreach: "https://lovethynerd.com/outreach/", // fallback only: the trips come from missions.lovethynerd.com (src/missions.js)
   remote: "https://ltn-tv-admin.ltn-tv-admin.workers.dev/config.json", // the admin backend's public /config.json (see ltn-tv-admin); empty = built-in lineup only
   twitch: "lovethynerd",
   // Spotify playlists listed on LTN NEWS: [id, title], in the order the profile page shows them (open.spotify.com/user/${user}/playlists). Spotify has no
@@ -194,7 +194,36 @@ async function ltnSite() {
     return { t: ltnTag(it, "title"), at: Date.parse(ltnTag(it, "pubDate")) || 0, by: ltnTag(it, "dc:creator"), cat: ltnTag(it, "category"), img, text: text.slice(0, 220) };
   });
 }
-async function ltnTrips() { // mission trips from the outreach page: only the ones that have not started yet
+const LTN_MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function ltnTripStart(text) { // "Dec 3–7, 2026", "Jun 30 – Jul 2, 2027", "Dec 30, 2026 – Jan 2, 2027" -> start date, or 0
+  const t = String(text || "");
+  const a = /([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})/.exec(t);
+  const years = t.match(/\b(20\d{2})\b/g) || [];
+  if (!a || !years.length || !(a[1].toLowerCase() in LTN_MONTHS)) return 0;
+  let year = +years[0];
+  const b = /[–—-]\s*([A-Za-z]{3})[a-z]*\.?\s+\d{1,2}/.exec(t); // a range that runs into another month
+  if (years.length === 1 && b && b[1].toLowerCase() in LTN_MONTHS && LTN_MONTHS[b[1].toLowerCase()] < LTN_MONTHS[a[1].toLowerCase()]) year -= 1; // Dec 30 - Jan 2, 2027
+  return new Date(year, LTN_MONTHS[a[1].toLowerCase()], +a[2]).getTime();
+}
+async function ltnTripsMissions() { // from missions.lovethynerd.com, read by the app itself (a hidden page, in main.js)
+  if (!window.bw || !window.bw.missionTrips) throw new Error("not in the app");
+  const list = await window.bw.missionTrips();
+  if (!Array.isArray(list) || !list.length) throw new Error("no trips");
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const out = [];
+  for (const t of list) {
+    const at = ltnTripStart(t.when);
+    if (!at || at < today.getTime()) continue; // only trips that have not started
+    out.push({ t: ltnStr(t.title, 60).toUpperCase(), at, where: ltnStr(t.where, 60), when: ltnStr(t.when, 40), cost: ltnStr(t.cost, 12).replace(/\.00$/, ""), leader: ltnStr(t.leader, 40), days: Math.round((at - today.getTime()) / 86400000), open: undefined, img: /placeholder/i.test(t.img || "") ? "" : ltnHttps(t.img) });
+  }
+  out.sort((a, b) => a.at - b.at);
+  if (!out.length) throw new Error("no upcoming trips");
+  return out.slice(0, 9);
+}
+async function ltnTrips() { // missions site first; the old outreach page only if that cannot be read
+  try { return await ltnTripsMissions(); } catch { return ltnTripsOutreach(); }
+}
+async function ltnTripsOutreach() { // the old source: the outreach page's cards
   const html = await fetch(LTN.outreach, { cache: "no-store" }).then((r) => r.text());
   const doc = new DOMParser().parseFromString(html, "text/html");
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -525,7 +554,7 @@ function ltnPages() {
   };
   if (d && d.site && d.site.length && !hid("site")) pages.push(() => ["LOVETHYNERD.COM", `<div class="lgrid3">${d.site.slice(0, 9).map((p) => card(p.img, p.t, [p.cat, ago(p.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
   // mission trips, soonest first
-  if (d && d.trips && d.trips.length && !hid("trips")) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"].filter(Boolean).join("  •  "))).join("")}</div>`]);
+  if (d && d.trips && d.trips.length && !hid("trips")) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open === true ? "REGISTRATION OPEN" : t.open === false ? "REGISTRATION CLOSED" : "", t.cost || ""].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
     const vids = hid("youtube") ? [] : d.yt.videos.slice(0, 18);
     for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, [v.show, ago(v.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
