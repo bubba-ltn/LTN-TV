@@ -42,3 +42,16 @@ Logos are in `assets/`. The app is built from the BackWhenTV player; setting `lt
 ## Updates
 
 LTN TV checks GitHub for a newer release a few seconds after it starts and every 6 hours. When there is one it asks; Enter / Y downloads the installer and runs it, Esc / N waits. Press U (or use the tray menu) to check now. The portable build opens the release page instead.
+
+## Changing what a channel plays (the 2-hour rule)
+
+A channel's programme is worked out from the clock and its video lists, so everyone sees the same thing. **A change to a channel's lineup must never alter what is on, or what is next, for the following 2 hours.** So a change to a show's extra playlists is given a time and the old lineup keeps running until then:
+
+```js
+{ id: "UC…", name: "CHURCH NERDS", lists: ["PL_new"], listsPrev: ["PL_old"], listsFrom: "2026-11-20T18:00:00Z" }
+```
+
+- `listsFrom` = at least 2 hours after the release goes out, rounded up to a 2-hour UTC boundary (18:00Z, 20:00Z, …). Everyone, whatever version or install time, switches at that same moment (an old version without the change simply never switches).
+- `listsPrev` is what the channel had before (empty `[]` if it had none). Once `listsFrom` has passed it can be removed.
+- A show with none of these keys keeps its built-in lineup, so the admin backend can't undo a scheduled change by omission.
+- Not covered: a new YouTube upload shows up when the video list is next refreshed (every 6 hours), and a video that will not play is skipped on that PC.

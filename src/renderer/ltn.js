@@ -104,7 +104,7 @@ const LTN = {
     { id: "UCjJEmqOToVh-jYDJePEBcvQ", num: 11, name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
     { id: "UCda5tLEdzlfm3FtLi4rLQyA", num: 12, name: "SATELLITE STORIES", info: "@SatelliteStoriesLTN" },
     { id: "UCTDE0NRt9QqeUByTE6WM0kQ", num: 13, name: "TWO WORDS", info: "Two Words Podcast, @TwoWordsLTN" },
-    { id: "UCT67V7nvgWuygXAORpiU7iA", num: 14, name: "CHURCH NERDS", info: "@ChurchNerdsLTN", lists: ["PLibAByUqZ709C0hUA32FN7D6ZupQruwQt"] }, // lists: extra playlists whose videos are scheduled on this channel too (the older Church Nerds episodes)
+    { id: "UCT67V7nvgWuygXAORpiU7iA", num: 14, name: "CHURCH NERDS", info: "@ChurchNerdsLTN", lists: ["PLibAByUqZ709C0hUA32FN7D6ZupQruwQt"] }, // lists: extra playlists whose videos are scheduled on this channel too (the older Church Nerds episodes). To CHANGE them later, add listsPrev + listsFrom (>= 2 hours ahead): see README, "the 2-hour rule"
     { id: "UCXhCjTVjYof3F1tUfmem5hw", num: 15, name: "BIBLE THUMP", info: "@BibleThumpLTN" },
   ],
 };
@@ -112,7 +112,7 @@ const LTN = {
 const ltnFree = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
 const ltnAdd = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
 function ltnInjectShows() { // one channel per YouTube show in LTN.shows
-  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [] }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [], extraPrev: s.listsPrev || null, extraFrom: ltnWhen(s.listsFrom) }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
     ltnAdd(mk(s, ltnFree(s.num)));
@@ -345,7 +345,8 @@ async function ltnPollTuned() {
 // LTN.remote is the address of the backend's public /config.json. It is polled once a minute, whichever channel is on, so a change published there
 // shows up here by itself. If it cannot be reached the last good copy (kept on this PC) or the built-in lineup is used, so nothing breaks.
 const LTN_SHOWS0 = LTN.shows.slice(), LTN_SCHEDULE0 = LTN.schedule;
-const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",")).join(";");
+const ltnWhen = (v) => { const t = typeof v === "number" ? v : Date.parse(v || ""); return Number.isFinite(t) ? t : 0; }; // a time given as a date string or milliseconds -> milliseconds (0 = none)
+const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",") + "|" + (s.listsPrev || []).join(",") + "|" + ltnWhen(s.listsFrom)).join(";");
 let ltnCfgVer = 0, ltnCfgSig = ltnShowSig(LTN_SHOWS0.filter((s) => !s.hidden)), ltnRemoteBusy = false;
 const ltnStr = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 const ltnHttps = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" ? u.href : ""; } catch { return ""; } };
@@ -358,8 +359,9 @@ function ltnCleanCfg(c) { // never trust what came over the wire: keep only well
     for (const s of c.shows.slice(0, 40)) {
       if (!s || !/^UC[\w-]{22}$/.test(String(s.id)) || seen.has(s.id)) continue;
       seen.add(s.id);
-      const own = Array.isArray(s.lists) ? s.lists : ((LTN_SHOWS0.find((x) => x.id === s.id) || {}).lists || []);
-      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: own.map(String).filter((l) => /^PL[\w-]{10,60}$/.test(l)).slice(0, 3) });
+      const src = Array.isArray(s.lists) ? s : (LTN_SHOWS0.find((x) => x.id === s.id) || {}); // a show with no "lists" keeps the built-in ones, and any change scheduled for them
+      const ids = (a) => (Array.isArray(a) ? a : []).map(String).filter((l) => /^PL[\w-]{10,60}$/.test(l)).slice(0, 3);
+      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: ids(src.lists), listsPrev: Array.isArray(src.listsPrev) ? ids(src.listsPrev) : null, listsFrom: ltnWhen(src.listsFrom) });
     }
     if (list.length) out.shows = list;
   }
@@ -469,15 +471,22 @@ function ltnPrograms(ch, from, to) {
   if (!live && src && src.kind === "yt" && src.yt && src.yt.sched && src.ytid) {
     const lst = ltnLists[src.ytid];
     if (lst && lst.sched && lst.sched.order.length) {
-      const sch = lst.sched, n = sch.order.length, out = [];
-      const a = schedAt(sch, from);
-      let start = from - a.offset, i = a.index;
-      for (let guard = 0; start < to && guard < 500; guard++, i++) {
-        const it = sch.order[i % n], nx = sch.order[(i + 1) % n];
-        out.push({ s: start, e: start + it.len, t: it.title || src.name, sub: "", sched: true, next: { t: nx.title || src.name, s: start + it.len, e: start + it.len + nx.len } });
-        start += it.len;
-      }
-      return out;
+      const slots = (sch, from, to) => {
+        const T = sch.later ? sch.later.from / 1000 : Infinity;
+        if (from >= T) return slots(sch.later.sched, from, to);
+        const n = sch.order.length, out = [], a = schedAt(sch, from), end = Math.min(to, T);
+        let start = from - a.offset, i = a.index;
+        for (let guard = 0; start < end && guard < 500; guard++, i++) {
+          const it = sch.order[i % n], nx = sch.order[(i + 1) % n];
+          out.push({ s: start, e: Math.min(start + it.len, T), t: it.title || src.name, sub: "", sched: true, next: { t: nx.title || src.name, s: start + it.len, e: start + it.len + nx.len } });
+          start += it.len;
+        }
+        if (to <= T) return out;
+        const tail = slots(sch.later.sched, T, to); // from the moment of the change on, the new lineup
+        if (tail.length) tail[0].s = Math.max(tail[0].s, T); // its first programme is drawn from the switch, not from before it
+        return out.concat(tail);
+      };
+      return slots(lst.sched, from, to);
     }
     ltnEnsure(src); // not loaded yet: ask for it, and show the single block until it arrives
   }
@@ -645,6 +654,7 @@ function ltnBuildSchedule(items, seed) {
   return { order, total: acc, items, seed };
 }
 function schedAt(sch, nowSec) { // what is on at this moment: {it, offset, index, next}
+  if (sch.later && nowSec * 1000 >= sch.later.from) sch = sch.later.sched; // a scheduled change of the lineup takes over at its time
   const pos = (((nowSec - SCHED_ANCHOR) % sch.total) + sch.total) % sch.total;
   let lo = 0, hi = sch.order.length - 1;
   while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (sch.order[mid].start <= pos) lo = mid; else hi = mid - 1; }
@@ -660,32 +670,38 @@ async function ltnVerifyList(ch, items) {
   const ids = new Set(items.map((x) => x.id));
   if (!entries.some((e) => ids.has(ltnTag(e, "yt:videoId")))) throw new Error("this list does not match the channel's own feed");
 }
-async function ltnWithExtras(items, extras) { // the channel's own videos first, then each extra playlist's (each video once). One that cannot be read is left out until the next refresh.
-  const seen = new Set(items.map((x) => x.id)), out = items.slice();
-  for (const l of extras) {
-    try { for (const it of await ltnFetchList(l)) if (!seen.has(it.id)) { seen.add(it.id); out.push(it); } } catch { /* try again at the next refresh */ }
-  }
-  return out;
-}
+// What a channel plays is built from its own list plus its extra playlists. If the extra playlists are changed, the change is given a time ("listsFrom"): until then
+// the old lineup keeps running, so nothing about what is on (or what comes next) is reshuffled the moment an update arrives. Everyone switches at that same moment.
 async function ltnGetSchedule(ch) {
   const ep = Math.floor(Date.now() / 1000 / SCHED_EPOCH), id = ch.ytid;
-  const extras = (ch.yt && ch.yt.extra) || [], listKey = ch.yt.list + (extras.length ? "+" + extras.join(",") : ""); // a saved copy is only good for exactly this set of playlists
+  const cur = (ch.yt && ch.yt.extra) || [], prev = ch.yt && ch.yt.extraPrev, from = (ch.yt && ch.yt.extraFrom) || 0;
+  const pending = !!(prev && from > Date.now()); // a change is scheduled but not in force yet
+  const need = [...new Set([...(pending ? prev : []), ...cur])];
+  const key = ch.yt.list + "|" + need.join(","); // a saved copy is only good for exactly this set of playlists
   const have = ltnLists[id];
   if (have && have.epoch === ep) return have.sched;
   if (ltnListLoading[id]) return ltnListLoading[id];
   ltnListLoading[id] = (async () => {
     try {
-      let items = null;
-      // a saved copy is only trusted if it was saved for exactly this channel and playlist, and it is checked again like a fresh list
-      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.id === id && c.list === listKey && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
-      if (items) { try { await ltnVerifyList(ch, items); } catch { items = null; try { localStorage.removeItem("ltn-list-" + id); } catch { /* ignore */ } } } // a bad saved copy is thrown away
-      if (!items) {
-        items = await ltnFetchList(ch.yt.list);
-        await ltnVerifyList(ch, items); // the channel's own list must really be that channel's (the extra playlists are added on purpose, after this check)
-        if (extras.length) items = await ltnWithExtras(items, extras);
-        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, id, list: listKey, items })); } catch { /* storage full or blocked */ }
+      let data = null;
+      // a saved copy is only trusted if it was saved for exactly this channel and these playlists, and it is checked again like a fresh list
+      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.v === 2 && c.epoch === ep && c.id === id && c.list === key && c.primary && c.primary.length) data = { primary: c.primary, ext: c.ext || {} }; } catch { /* no saved copy */ }
+      if (data) { try { await ltnVerifyList(ch, data.primary); } catch { data = null; try { localStorage.removeItem("ltn-list-" + id); } catch { /* ignore */ } } } // a bad saved copy is thrown away
+      if (!data) {
+        const primary = await ltnFetchList(ch.yt.list);
+        await ltnVerifyList(ch, primary); // the channel's own list must really be that channel's (the extra playlists are added on purpose, after this check)
+        const ext = {};
+        for (const l of need) { try { ext[l] = await ltnFetchList(l); } catch { /* left out until the next refresh */ } }
+        data = { primary, ext };
+        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ v: 2, epoch: ep, id, list: key, primary, ext })); } catch { /* storage full or blocked */ }
       }
-      const sched = ltnBuildSchedule(items.filter((x) => !ytBad.has(x.id)), id);
+      const merge = (ids) => { // the channel's own videos first, then each extra playlist's; each video once
+        const seen = new Set(), out = [];
+        for (const list of [data.primary, ...ids.map((l) => data.ext[l] || [])]) for (const it of list) if (!seen.has(it.id)) { seen.add(it.id); out.push(it); }
+        return out.filter((x) => !ytBad.has(x.id));
+      };
+      const sched = ltnBuildSchedule(merge(pending ? prev : cur), id);
+      if (pending) sched.later = { from, sched: ltnBuildSchedule(merge(cur), id) };
       ltnLists[id] = { epoch: ep, sched };
       return sched;
     } catch { return have ? have.sched : null; } // keep the last list if refreshing fails
@@ -783,7 +799,9 @@ function ytOnError() {
   ytBad.add(cur);
   const rest = ytSched.items.filter((x) => !ytBad.has(x.id));
   if (!rest.length) return;
+  const later = ytSched.later;
   ytSched = ltnBuildSchedule(rest, ytSched.seed);
+  if (later) { const r2 = later.sched.items.filter((x) => !ytBad.has(x.id)); if (r2.length) ytSched.later = { from: later.from, sched: ltnBuildSchedule(r2, later.sched.seed) }; }
   if (ytSchedCtx && ltnLists[ytSchedCtx.ytid]) ltnLists[ytSchedCtx.ytid].sched = ytSched;
 }
 // a show channel is "already on": pick the programme from the wall clock so everyone sees the same thing, and join part-way in
