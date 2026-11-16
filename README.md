@@ -55,3 +55,7 @@ A channel's programme is worked out from the clock and its video lists, so every
 - `listsPrev` is what the channel had before (empty `[]` if it had none). Once `listsFrom` has passed it can be removed.
 - A show with none of these keys keeps its built-in lineup, so the admin backend can't undo a scheduled change by omission.
 - Not covered: a new YouTube upload shows up when the video list is next refreshed (every 6 hours), and a video that will not play is skipped on that PC.
+
+## Twitch on any channel
+
+A show channel can have up to 3 Twitch channels (in the admin: **Channels**, the "Twitch channels" box under the channel; or `twitch: ["login"]` on a show in `LTN.shows`). The app checks them with the other live checks (every 4 minutes, every 75 seconds for the channel being watched). While one is live, that channel shows the Twitch stream, the guide, banner and LTN News "live now" page say so, and when it ends the channel goes back to its videos. If the channel's own YouTube stream is live too, YouTube wins. A live stream works like a YouTube live stream does: it is not part of the 2-hour rule, since it only exists while the stream is on.

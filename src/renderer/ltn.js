@@ -112,7 +112,7 @@ const LTN = {
 const ltnFree = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
 const ltnAdd = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
 function ltnInjectShows() { // one channel per YouTube show in LTN.shows
-  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [], extraPrev: s.listsPrev || null, extraFrom: ltnWhen(s.listsFrom) }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [], extraPrev: s.listsPrev || null, extraFrom: ltnWhen(s.listsFrom) }, twitch: s.twitch || [], blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." + ((s.twitch || []).length ? " Also switches to Twitch (" + s.twitch.join(", ") + ") whenever that is live." : "") });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
     ltnAdd(mk(s, ltnFree(s.num)));
@@ -128,13 +128,22 @@ function injectLtnChannels() {
 
 /* ---------- shared state ---------- */
 let ltnData = null, ltnAt = 0, ltnPage = 0, ltnPageTimer = null, ltnRefreshTimer = null;
-let ltnLiveMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
+let ltnLiveMap = {}, ltnTwMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
 let ltnPlaysCh = null; // the LTN Plays Games YouTube channel: a hidden source, not in the lineup
 const ltnMirror = () => ltnPlaysCh;
 // what is really playing: for LTN TWITCH while offline, that is the LTN Plays channel
 const ltnPlayCh = () => { const ch = channels[tuned]; return ch && ch.kind === "twitch" && !isLive(ch) ? ltnMirror() || ch : ch; };
 // everything that decides WHAT plays on a channel; when it changes the channel is re-tuned
+const ltnTwLogin = (v) => { const t = String(v == null ? "" : v).trim().toLowerCase().replace(/^https?:\/\/(www\.)?twitch\.tv\//, "").replace(/[\/?#].*$/, ""); return /^[a-z0-9_]{3,25}$/.test(t) ? t : ""; };
+// The Twitch channel (login) that makes this channel switch to a stream right now, or "". A YouTube stream on the channel itself comes first.
+function ltnTwFor(ch) {
+  if (!ch || ch.kind !== "yt" || !ch.twitch || !ch.twitch.length) return "";
+  if (ch.ytid && ltnLiveMap[ch.ytid] && ltnLiveMap[ch.ytid].live) return "";
+  return ch.twitch.find((l) => ltnTwMap[l] && ltnTwMap[l].live) || "";
+}
 function ltnSig(ch) {
+  const tl = ltnTwFor(ch);
+  if (tl) return "tw:" + tl;
   if (ch.kind === "twitch") { if (isLive(ch)) return "tw"; const m = ltnMirror(); return "off" + (m && isLive(m) ? "+yt" : ""); }
   return isLive(ch) ? "live" : "off";
 }
@@ -144,7 +153,7 @@ const ltnIsOwn = (ch) => ch && (ch.kind === "ltn" || ch.kind === "yt" || ch.kind
 function isLive(ch) {
   if (!ch) return false;
   if (ch.kind === "twitch") return !!(ltnTw && ltnTw.live);
-  if (ch.kind === "yt" && ch.ytid) return !!(ltnLiveMap[ch.ytid] && ltnLiveMap[ch.ytid].live);
+  if (ch.kind === "yt" && ch.ytid) return !!(ltnLiveMap[ch.ytid] && ltnLiveMap[ch.ytid].live) || !!ltnTwFor(ch);
   return false;
 }
 
@@ -249,10 +258,19 @@ async function ltnTripsOutreach() { // the old source: the outreach page's cards
   if (!out.length) throw new Error("no trips");
   return out;
 }
-async function ltnTwitch() {
-  const g = (p) => fetch("https://decapi.me/twitch/" + p + "/" + LTN.twitch, { cache: "no-store" }).then((r) => r.text()).then((t) => t.trim());
-  const [uptime, title, game] = await Promise.all([g("uptime"), g("title").catch(() => ""), g("game").catch(() => "")]);
-  return { live: !!uptime && !/offline|not found|error|unavailable/i.test(uptime), uptime, title, game };
+async function ltnTwitch(login) {
+  login = login || LTN.twitch;
+  const g = (p) => fetch("https://decapi.me/twitch/" + p + "/" + login, { cache: "no-store" }).then((r) => r.text()).then((t) => t.trim());
+  const uptime = await g("uptime");
+  const live = !!uptime && !/offline|not found|could not|error|unavailable/i.test(uptime);
+  if (!live) return { live: false, uptime: "", title: "", game: "" };
+  const [title, game] = await Promise.all([g("title").catch(() => ""), g("game").catch(() => "")]); // only asked for while live
+  return { live, uptime, title, game };
+}
+// every Twitch channel any show channel should switch to (each asked once)
+const ltnTwLogins = () => [...new Set(channels.flatMap((c) => (c.kind === "yt" && c.twitch) || []))];
+async function ltnTwPoll(only) {
+  await Promise.allSettled((only || ltnTwLogins()).map(async (l) => { try { ltnTwMap[l] = await ltnTwitch(l); } catch { /* keep the last answer */ } }));
 }
 // Is this YouTube channel live? Its /live page names a watch link only while a stream is on. The page is huge, so stop reading once we know.
 async function ytLive(id) {
@@ -318,7 +336,7 @@ async function ltnLoad(force) {
   if (tw.value) ltnTw = tw.value;
   ltnAt = Date.now();
 }
-const ltnLiveSnap = () => ({ yt: ltnLiveMap, tw: ltnTw ? { live: !!ltnTw.live, title: ltnTw.title, game: ltnTw.game, uptime: ltnTw.uptime } : null });
+const ltnLiveSnap = () => ({ yt: ltnLiveMap, twm: ltnTwMap, tw: ltnTw ? { live: !!ltnTw.live, title: ltnTw.title, game: ltnTw.game, uptime: ltnTw.uptime } : null });
 function ltnLiveChanged() {
   if (mode === "guide") renderGuide();
   const ch = channels[tuned];
@@ -328,6 +346,7 @@ async function ltnLivePoll() {
   const before = JSON.stringify(ltnLiveSnap());
   try { ltnTw = await ltnTwitch(); } catch { /* keep the last answer */ }
   await Promise.allSettled(LTN.shows.map(async (s) => { try { ltnLiveMap[s.id] = await ytLive(s.id); } catch { /* keep the last answer */ } }));
+  await ltnTwPoll();
   if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
 }
 // the channel being watched is checked more often, so going live or ending is noticed within a minute or two
@@ -337,7 +356,7 @@ async function ltnPollTuned() {
   const before = JSON.stringify(ltnLiveSnap());
   try {
     if (ch.kind === "twitch") { ltnTw = await ltnTwitch(); if (!ltnTw.live && ltnMirror()) ltnLiveMap[LTN.playsId] = await ytLive(LTN.playsId); }
-    else if (ch.kind === "yt" && ch.ytid) ltnLiveMap[ch.ytid] = await ytLive(ch.ytid);
+    else if (ch.kind === "yt" && ch.ytid) { ltnLiveMap[ch.ytid] = await ytLive(ch.ytid); if (ch.twitch && ch.twitch.length) await ltnTwPoll(ch.twitch); }
   } catch { return; }
   if (JSON.stringify(ltnLiveSnap()) !== before) ltnLiveChanged();
 }
@@ -346,7 +365,7 @@ async function ltnPollTuned() {
 // shows up here by itself. If it cannot be reached the last good copy (kept on this PC) or the built-in lineup is used, so nothing breaks.
 const LTN_SHOWS0 = LTN.shows.slice(), LTN_SCHEDULE0 = LTN.schedule;
 const ltnWhen = (v) => { const t = typeof v === "number" ? v : Date.parse(v || ""); return Number.isFinite(t) ? t : 0; }; // a time given as a date string or milliseconds -> milliseconds (0 = none)
-const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",") + "|" + (s.listsPrev || []).join(",") + "|" + ltnWhen(s.listsFrom)).join(";");
+const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",") + "|" + (s.listsPrev || []).join(",") + "|" + ltnWhen(s.listsFrom) + "|" + (s.twitch || []).join(",")).join(";");
 let ltnCfgVer = 0, ltnCfgSig = ltnShowSig(LTN_SHOWS0.filter((s) => !s.hidden)), ltnRemoteBusy = false;
 const ltnStr = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 const ltnHttps = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" ? u.href : ""; } catch { return ""; } };
@@ -361,7 +380,7 @@ function ltnCleanCfg(c) { // never trust what came over the wire: keep only well
       seen.add(s.id);
       const src = Array.isArray(s.lists) ? s : (LTN_SHOWS0.find((x) => x.id === s.id) || {}); // a show with no "lists" keeps the built-in ones, and any change scheduled for them
       const ids = (a) => (Array.isArray(a) ? a : []).map(String).filter((l) => /^PL[\w-]{10,60}$/.test(l)).slice(0, 3);
-      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: ids(src.lists), listsPrev: Array.isArray(src.listsPrev) ? ids(src.listsPrev) : null, listsFrom: ltnWhen(src.listsFrom) });
+      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: ids(src.lists), listsPrev: Array.isArray(src.listsPrev) ? ids(src.listsPrev) : null, listsFrom: ltnWhen(src.listsFrom), twitch: [...new Set((Array.isArray(s.twitch) ? s.twitch : (LTN_SHOWS0.find((x) => x.id === s.id) || {}).twitch || []).map(ltnTwLogin).filter(Boolean))].slice(0, 3) });
     }
     if (list.length) out.shows = list;
   }
@@ -444,6 +463,8 @@ function ltnNow(ch) {
   const live = isLive(ch);
   if (ch.kind === "twitch") return live ? { t: "\u25CF LIVE: " + ((ltnTw && ltnTw.title) || "on Twitch"), n: (ltnTw && ltnTw.game) || "" } : { t: (channels[tuned] === ch && ytNowTitle()) || "LTN Plays Games", n: ltnNextText() || "twitch.tv/" + LTN.twitch };
   if (ch.kind === "yt") {
+    const tl = ltnTwFor(ch);
+    if (tl) { const w = ltnTwMap[tl]; return { t: "\u25CF LIVE: " + (w.title || "on Twitch"), n: w.game || "twitch.tv/" + tl }; }
     if (live) return { t: "● LIVE: " + (ltnLiveMap[ch.ytid].title || ch.name), n: "" };
     const lst = ch.ytid && ch.yt.sched && ltnLists[ch.ytid];
     if (lst && lst.sched && lst.sched.order.length) { const a = schedAt(lst.sched, Date.now() / 1000); return { t: a.it.title || ch.name, n: "Up next: " + (a.next.title || "") }; }
@@ -495,7 +516,8 @@ function ltnPrograms(ch, from, to) {
 function ltnPreviewClear() { const i = $("#gprevimg"); if (i) { i.style.display = "none"; i.removeAttribute("src"); } }
 // The video on this channel right now: {id, live} for a video, {tw: true} for the Twitch stream, or null when not known yet.
 function ltnNowVideo(ch) {
-  if (ch.kind === "twitch") { if (isLive(ch)) return { tw: true }; ch = ltnMirror(); if (!ch) return null; } // not live: it is showing the LTN Plays Games channel
+  { const tl = ltnTwFor(ch); if (tl) return { tw: tl }; }
+  if (ch.kind === "twitch") { if (isLive(ch)) return { tw: LTN.twitch }; ch = ltnMirror(); if (!ch) return null; } // not live: it is showing the LTN Plays Games channel
   if (ch.kind !== "yt") return null;
   if (ch.ytid) {
     const lv = ltnLiveMap[ch.ytid];
@@ -513,7 +535,7 @@ function ltnPreview(ch) { // the guide's preview box: the thumbnail of what is o
   const img = $("#gprevimg"), msg = $("#gprevmsg");
   const v = ltnNowVideo(ch);
   let chain = [], logo = false;
-  if (v && v.tw) chain = ["https://static-cdn.jtvnw.net/previews-ttv/live_user_" + LTN.twitch + "-640x360.jpg?t=" + Math.floor(Date.now() / 30000)];
+  if (v && v.tw) chain = ["https://static-cdn.jtvnw.net/previews-ttv/live_user_" + v.tw + "-640x360.jpg?t=" + Math.floor(Date.now() / 30000)];
   else if (v && v.live) chain = ["maxresdefault_live", "hqdefault_live"].map((q) => "https://i.ytimg.com/vi/" + v.id + "/" + q + ".jpg");
   else if (v && v.id) chain = ytThumbs(v.id);
   else if (ch.kind === "ltn") { chain = ["ltn-wordmark.png"]; logo = true; } // LTN News is not a video
@@ -757,6 +779,7 @@ function playYt(ch, gen, owner) { // owner: the channel being watched, when it i
   ytInfo = {}; ytPos = 0; ytWant = -1; ytVidAtCmd = ""; ytJumpVid = ""; ytRecent = [];
   ltnTunedLive = isLive(ch); ltnTunedSig = ltnSig(owner || ch);
   clearInterval(ytCtl); ytCtl = null; ytSched = null; ytSchedActive = false;
+  { const tl = ltnTwFor(ch); if (tl) return ltnTwitchShow(tl, gen); } // a Twitch channel of this channel is live: show that stream
   if (ltnTunedLive) return ytShow(ytEmbed("live_stream?channel=" + ch.ytid), gen);
   if (ch.yt.sched) { // the shared shuffled schedule; if the list cannot be loaded, fall back to the plain playlist
     loadingOn(true);
@@ -936,6 +959,16 @@ function ltnNextShow(on) { // the note in the top-left corner
   if (!on) { el.classList.remove("on"); return; }
   const draw = () => { const t = ltnNextText(); el.textContent = t; el.classList.toggle("on", !!t); };
   draw(); ltnNextTimer = setInterval(draw, 30000);
+}
+async function ltnTwitchShow(login, gen) {
+  ltnNextShow(false);
+  $("#tw").classList.add("on");
+  try { await ltnTwitchLib(); } catch { return flash("TWITCH UNAVAILABLE"); }
+  if (gen !== tuneGen) return;
+  $("#twp").textContent = "";
+  twPlayer = new Twitch.Player("twp", { channel: login, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
+  twPlayer.addEventListener(Twitch.Player.READY, () => { try { twPlayer.play(); } catch { /* player gone */ } });
+  ytAudioSoon();
 }
 async function playTwitch(ch, gen) {
   loadingOn(false);
