@@ -104,7 +104,7 @@ const LTN = {
     { id: "UCjJEmqOToVh-jYDJePEBcvQ", num: 11, name: "FAITH & FANDOM", info: "Faith & Fandom Podcast, @FaithAndFandomLTN" },
     { id: "UCda5tLEdzlfm3FtLi4rLQyA", num: 12, name: "SATELLITE STORIES", info: "@SatelliteStoriesLTN" },
     { id: "UCTDE0NRt9QqeUByTE6WM0kQ", num: 13, name: "TWO WORDS", info: "Two Words Podcast, @TwoWordsLTN" },
-    { id: "UCT67V7nvgWuygXAORpiU7iA", num: 14, name: "CHURCH NERDS", info: "@ChurchNerdsLTN" },
+    { id: "UCT67V7nvgWuygXAORpiU7iA", num: 14, name: "CHURCH NERDS", info: "@ChurchNerdsLTN", lists: ["PLibAByUqZ709C0hUA32FN7D6ZupQruwQt"] }, // lists: extra playlists whose videos are scheduled on this channel too (the older Church Nerds episodes)
     { id: "UCXhCjTVjYof3F1tUfmem5hw", num: 15, name: "BIBLE THUMP", info: "@BibleThumpLTN" },
   ],
 };
@@ -112,7 +112,7 @@ const LTN = {
 const ltnFree = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
 const ltnAdd = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
 function ltnInjectShows() { // one channel per YouTube show in LTN.shows
-  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [] }, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
     ltnAdd(mk(s, ltnFree(s.num)));
@@ -345,7 +345,7 @@ async function ltnPollTuned() {
 // LTN.remote is the address of the backend's public /config.json. It is polled once a minute, whichever channel is on, so a change published there
 // shows up here by itself. If it cannot be reached the last good copy (kept on this PC) or the built-in lineup is used, so nothing breaks.
 const LTN_SHOWS0 = LTN.shows.slice(), LTN_SCHEDULE0 = LTN.schedule;
-const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num).join(";");
+const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",")).join(";");
 let ltnCfgVer = 0, ltnCfgSig = ltnShowSig(LTN_SHOWS0.filter((s) => !s.hidden)), ltnRemoteBusy = false;
 const ltnStr = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 const ltnHttps = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" ? u.href : ""; } catch { return ""; } };
@@ -358,7 +358,8 @@ function ltnCleanCfg(c) { // never trust what came over the wire: keep only well
     for (const s of c.shows.slice(0, 40)) {
       if (!s || !/^UC[\w-]{22}$/.test(String(s.id)) || seen.has(s.id)) continue;
       seen.add(s.id);
-      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length });
+      const own = Array.isArray(s.lists) ? s.lists : ((LTN_SHOWS0.find((x) => x.id === s.id) || {}).lists || []);
+      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: own.map(String).filter((l) => /^PL[\w-]{10,60}$/.test(l)).slice(0, 3) });
     }
     if (list.length) out.shows = list;
   }
@@ -659,8 +660,16 @@ async function ltnVerifyList(ch, items) {
   const ids = new Set(items.map((x) => x.id));
   if (!entries.some((e) => ids.has(ltnTag(e, "yt:videoId")))) throw new Error("this list does not match the channel's own feed");
 }
+async function ltnWithExtras(items, extras) { // the channel's own videos first, then each extra playlist's (each video once). One that cannot be read is left out until the next refresh.
+  const seen = new Set(items.map((x) => x.id)), out = items.slice();
+  for (const l of extras) {
+    try { for (const it of await ltnFetchList(l)) if (!seen.has(it.id)) { seen.add(it.id); out.push(it); } } catch { /* try again at the next refresh */ }
+  }
+  return out;
+}
 async function ltnGetSchedule(ch) {
   const ep = Math.floor(Date.now() / 1000 / SCHED_EPOCH), id = ch.ytid;
+  const extras = (ch.yt && ch.yt.extra) || [], listKey = ch.yt.list + (extras.length ? "+" + extras.join(",") : ""); // a saved copy is only good for exactly this set of playlists
   const have = ltnLists[id];
   if (have && have.epoch === ep) return have.sched;
   if (ltnListLoading[id]) return ltnListLoading[id];
@@ -668,12 +677,13 @@ async function ltnGetSchedule(ch) {
     try {
       let items = null;
       // a saved copy is only trusted if it was saved for exactly this channel and playlist, and it is checked again like a fresh list
-      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.id === id && c.list === ch.yt.list && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
+      try { const c = JSON.parse(localStorage.getItem("ltn-list-" + id) || "null"); if (c && c.epoch === ep && c.id === id && c.list === listKey && c.items && c.items.length) items = c.items; } catch { /* no saved copy */ }
       if (items) { try { await ltnVerifyList(ch, items); } catch { items = null; try { localStorage.removeItem("ltn-list-" + id); } catch { /* ignore */ } } } // a bad saved copy is thrown away
       if (!items) {
         items = await ltnFetchList(ch.yt.list);
-        await ltnVerifyList(ch, items); // never schedule another channel's videos
-        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, id, list: ch.yt.list, items })); } catch { /* storage full or blocked */ }
+        await ltnVerifyList(ch, items); // the channel's own list must really be that channel's (the extra playlists are added on purpose, after this check)
+        if (extras.length) items = await ltnWithExtras(items, extras);
+        try { localStorage.setItem("ltn-list-" + id, JSON.stringify({ epoch: ep, id, list: listKey, items })); } catch { /* storage full or blocked */ }
       }
       const sched = ltnBuildSchedule(items.filter((x) => !ytBad.has(x.id)), id);
       ltnLists[id] = { epoch: ep, sched };
