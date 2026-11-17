@@ -270,8 +270,22 @@ async function ltnTwitch(login) {
 }
 // every Twitch channel any show channel should switch to (each asked once)
 const ltnTwLogins = () => [...new Set(channels.flatMap((c) => (c.kind === "yt" && c.twitch) || []))];
+const ltnTwEnded = {}; // login -> when the player itself said the stream ended (the live check can lag a minute or two behind)
 async function ltnTwPoll(only) {
-  await Promise.allSettled((only || ltnTwLogins()).map(async (l) => { try { ltnTwMap[l] = await ltnTwitch(l); } catch { /* keep the last answer */ } }));
+  await Promise.allSettled((only || ltnTwLogins()).map(async (l) => {
+    try {
+      const r = await ltnTwitch(l);
+      if (r.live && Date.now() - (ltnTwEnded[l] || 0) < 5 * 60000) r.live = false; // just ended: do not flip back on a stale answer
+      ltnTwMap[l] = r;
+    } catch { /* keep the last answer */ }
+  }));
+}
+// the Twitch player says the stream is over: go back to the channel's programming now, not at the next check
+function ltnTwOver(login) {
+  if (!(ltnTwMap[login] && ltnTwMap[login].live)) return;
+  ltnTwEnded[login] = Date.now();
+  ltnTwMap[login] = { live: false, uptime: "", title: "", game: "" };
+  ltnLiveChanged();
 }
 // Is this YouTube channel live? Its /live page names a watch link only while a stream is on. The page is huge, so stop reading once we know.
 async function ytLive(id) {
@@ -986,7 +1000,11 @@ async function ltnTwitchShow(login, gen) {
   if (gen !== tuneGen) return;
   $("#twp").textContent = "";
   twPlayer = new Twitch.Player("twp", { channel: login, parent: ["localhost"], width: "100%", height: "100%", autoplay: true, muted: false });
-  twPlayer.addEventListener(Twitch.Player.READY, () => { try { twPlayer.play(); } catch { /* player gone */ } });
+  const tp = twPlayer;
+  tp.addEventListener(Twitch.Player.READY, () => { try { tp.play(); } catch { /* player gone */ } });
+  let gone = false;
+  tp.addEventListener(Twitch.Player.ONLINE, () => { gone = false; }); tp.addEventListener(Twitch.Player.PLAYING, () => { gone = false; });
+  for (const ev of [Twitch.Player.OFFLINE, Twitch.Player.ENDED]) tp.addEventListener(ev, () => { gone = true; setTimeout(() => { if (gone && gen === tuneGen && tp === twPlayer) ltnTwOver(login); }, 4000); }); // a short wait, so a blip is not mistaken for the end
   ytAudioSoon();
 }
 async function playTwitch(ch, gen) {
