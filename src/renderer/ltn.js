@@ -128,6 +128,7 @@ function injectLtnChannels() {
 
 /* ---------- shared state ---------- */
 let ltnData = null, ltnAt = 0, ltnPage = 0, ltnPageTimer = null, ltnRefreshTimer = null;
+let acct = { twitch: false, youtube: false }; // which accounts are signed in on this PC (asked of the app; only yes/no, never a password)
 let ltnLiveMap = {}, ltnTwMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
 let ltnPlaysCh = null; // the LTN Plays Games YouTube channel: a hidden source, not in the lineup
 const ltnMirror = () => ltnPlaysCh;
@@ -563,7 +564,12 @@ function ltnPages() {
   const hid = (k) => (LTN.hide || []).includes(k);
   // anything about being live is only here while something is live
   const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
-  if (live.length && !hid("live")) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
+  if (live.length && !hid("live")) pages.push(() => ["LIVE NOW", live.slice(0, 6).map((c) => {
+    const v = ltnNowVideo(c), tw = v && v.tw, id = v && v.id;
+    const chain = tw ? ["https://static-cdn.jtvnw.net/previews-ttv/live_user_" + tw + "-640x360.jpg?t=" + Math.floor(Date.now() / 60000)] : id ? ["maxresdefault_live", "hqdefault_live", "hqdefault"].map((q) => "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg") : [];
+    const img = chain.length ? `<img src="${esc(chain[0])}" data-c="${esc(chain.join("|"))}" data-n="1" onerror="var c=this.dataset.c.split('|'),n=+this.dataset.n;if(n<c.length){this.dataset.n=n+1;this.src=c[n]}else this.style.visibility='hidden'">` : "";
+    return `<div class="llive"><div class="lthumb">${img}<span class="lnum">${c.num}</span></div><div class="ltxt"><div class="lrs">CH ${c.num}  ${esc(c.name)}</div><div class="lrt">${esc(ltnNow(c).t)}</div></div><span class="lra">&#9679; LIVE</span></div>`;
+  }).join("") + (live.length > 6 ? `<div class="lsub">+ ${live.length - 6} more live</div>` : "")]);
   if (ltnTw && ltnTw.live && !hid("twitch")) pages.push(() => {
     const t = ltnTw;
     const img = `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">`;
@@ -741,7 +747,7 @@ async function ltnWarm() { // load every channel's list in the background (one a
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
 let ytJumpVid = "", ytRecent = [];
 let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "";
-const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
+const ytEmbed = (path) => "https://www." + (acct.youtube ? "youtube.com" : "youtube-nocookie.com") + "/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
 function ytCmd(func, args) {
   const f = $("#ytf");
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");

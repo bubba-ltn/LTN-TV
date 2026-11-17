@@ -41,6 +41,7 @@ const DEFAULTS = {
   wxMode: "auto",         // weather location: "auto" (by your internet connection) or "zip"
   wxZip: "",              // US ZIP code used when wxMode is "zip"
   spotifyLinks: "",       // Spotify playlist links shown on LTN NEWS (empty = the built-in list)
+  signOutOnExit: false,   // delete the Twitch / YouTube logins from this PC every time LTN TV closes
   twitchTrailer: "",      // link to the video shown on the Twitch channel while we are offline (YouTube, Twitch video or clip)
 };
 let S = { ...DEFAULTS };
@@ -73,6 +74,12 @@ ipcMain.handle("missions-fetch", async () => {
   if (!missionsBusy) missionsBusy = fetchMissions().catch((e) => { log("missions fetch failed", e.message); return null; }).finally(() => { missionsBusy = null; });
   return missionsBusy;
 });
+/* ---------- Twitch / YouTube sign-in (see accounts.js: the app never sees a password, and keeps nothing but the site's own login cookie on this PC) ---------- */
+const accounts = require("./accounts");
+const tellAccounts = async () => { if (win && !win.isDestroyed()) win.webContents.send("account-changed", await accounts.status()); };
+ipcMain.handle("account-status", () => accounts.status());
+ipcMain.handle("account-signin", (e, svc) => { const ok = accounts.signIn(svc, win, tellAccounts); if (ok) log("sign-in window opened:", svc); return ok; });
+ipcMain.handle("account-signout", async (e, svc) => { const ok = await accounts.signOut(svc); log("signed out:", svc); await tellAccounts(); return ok; });
 ipcMain.handle("settings-get", () => S);
 ipcMain.handle("settings-set", (e, patch) => {
   if (patch && typeof patch === "object") for (const k of Object.keys(DEFAULTS)) if (k in patch && typeof patch[k] === typeof DEFAULTS[k]) S[k] = patch[k];
@@ -160,6 +167,9 @@ app.whenReady().then(async () => {
   log("start", app.getVersion(), "electron", process.versions.electron);
   loadSettings();
   const ses = session.defaultSession;
+  // the sign-in window is never given the camera, microphone, location or anything else; everything else behaves as before
+  ses.setPermissionRequestHandler((wc, perm, cb) => cb(!accounts.isSignInContents(wc)));
+  ses.setPermissionCheckHandler((wc) => !accounts.isSignInContents(wc));
   ses.webRequest.onBeforeSendHeaders((d, cb) => {
     let host = "";
     try { host = new URL(d.url).hostname; } catch { /* ignore */ }
@@ -249,7 +259,14 @@ ipcMain.on("update-go", async () => {
   updBusy = false;
 });
 
-app.on("before-quit", () => { quitting = true; });
+let wiped = false;
+app.on("before-quit", (e) => {
+  quitting = true;
+  if (S.signOutOnExit && !wiped) { // the user chose to be signed out when LTN TV closes: remove the logins first, then really quit
+    e.preventDefault(); wiped = true;
+    accounts.signOutAll().catch(() => {}).finally(() => app.quit());
+  }
+});
 
 ipcMain.on("fullscreen", () => { if (win) win.setFullScreen(!win.isFullScreen()); });
 ipcMain.on("quit", () => app.quit());

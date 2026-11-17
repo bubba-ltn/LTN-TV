@@ -66,6 +66,12 @@
   .lcs { font-size: 2vh; color: var(--orange); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lrow { display: grid; grid-template-columns: 24vw 1fr 14vw; gap: 1.6vw; font-size: 2.8vh; background: rgba(255,255,255,.08); padding: 1.1vh 1.2vw; border-left: 6px solid var(--orange); }
   .lrs { color: var(--yellow); } .lra { text-align: right; color: var(--orange); }
+  .llive { display: grid; grid-template-columns: 15vh 1fr auto; gap: 1.6vw; align-items: center; background: rgba(255,255,255,.08); padding: .7vh 1.2vw .7vh .7vh; margin-bottom: .8vh; border-left: 6px solid var(--orange); }
+  .llive .lthumb { position: relative; width: 15vh; height: 8.4vh; background: #000; overflow: hidden; }
+  .llive .lthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .llive .lnum { position: absolute; left: 0; top: 0; background: var(--orange); color: #000; font-weight: 700; font-size: 2.6vh; padding: .1vh .8vh; }
+  .llive .ltxt { min-width: 0; font-size: 2.6vh; } .llive .lrs { font-size: 2.2vh; } .llive .lrs, .llive .lrt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .llive .lra { color: var(--orange); font-size: 2.4vh; }
   .lrs, .lrt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   #yt { display: none; background: #000; } #yt.on { display: block; }
   #ytf { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }

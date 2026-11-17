@@ -665,6 +665,21 @@ function cycleStart(d) {
   const i = Math.max(0, nums.indexOf(S.startChannel));
   setS({ startChannel: nums[(i + d + nums.length) % nums.length] });
 }
+const ACCT_HELP = "SIGN-IN HAPPENS ON TWITCH.TV / GOOGLE ITSELF. LTN TV NEVER SEES OR KEEPS YOUR PASSWORD, AND SENDS NOTHING ANYWHERE. SIGN OUT DELETES THE LOGIN FROM THIS PC.";
+function acctToggle(svc) {
+  if (!window.bw || !window.bw.accountSignIn) return flash("NOT AVAILABLE");
+  if (acct[svc]) window.bw.accountSignOut(svc).then(() => flash((svc === "twitch" ? "TWITCH" : "YOUTUBE") + " SIGNED OUT"));
+  else window.bw.accountSignIn(svc);
+}
+function acctChanged(s) { // a sign-in or sign-out happened: the players start again so they know who is watching
+  const was = JSON.stringify(acct);
+  acct = { twitch: !!(s && s.twitch), youtube: !!(s && s.youtube) };
+  if (JSON.stringify(acct) === was) return;
+  if (settingsOpen) renderSettings();
+  const ch = channels[tuned];
+  if (started && ch && ltnIsOwn(ch) && ch.kind !== "ltn") tune(tuned, false);
+}
+if (window.bw && window.bw.accountStatus) { window.bw.accountStatus().then(acctChanged).catch(() => {}); window.bw.onAccount(acctChanged); }
 const settingRows = () => [
   { l: "VOLUME", v: () => Math.round(S.volume * 100) + "%", adj: (d) => setS({ volume: Math.round(clamp01(S.volume + d * 0.05) * 100) / 100 }) },
   { l: "MUTE WINDOW", v: () => onoff(S.muteWindow), tog: () => setS({ muteWindow: !S.muteWindow }) },
@@ -672,6 +687,9 @@ const settingRows = () => [
   { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
   { l: "CLOSE BUTTON GOES TO TRAY", v: () => onoff(S.closeToTray), tog: () => setS({ closeToTray: !S.closeToTray }) },
   { l: "LAUNCH WITH WINDOWS", v: () => onoff(S.launchAtLogin), tog: () => setS({ launchAtLogin: !S.launchAtLogin }) },
+  { l: "TWITCH ACCOUNT", v: () => (acct.twitch ? "SIGNED IN  (ENTER TO SIGN OUT)" : "SIGNED OUT  (ENTER TO SIGN IN)"), help: ACCT_HELP, tog: () => acctToggle("twitch") },
+  { l: "YOUTUBE ACCOUNT", v: () => (acct.youtube ? "SIGNED IN  (ENTER TO SIGN OUT)" : "SIGNED OUT  (ENTER TO SIGN IN)"), help: ACCT_HELP, tog: () => acctToggle("youtube") },
+  { l: "SIGN OUT WHEN LTN TV CLOSES", v: () => onoff(S.signOutOnExit), help: ACCT_HELP, tog: () => setS({ signOutOnExit: !S.signOutOnExit }) },
   { l: "START CHANNEL", v: () => (S.startChannel ? S.startChannel + " " + chNameOf(S.startChannel) : "LAST WATCHED"), adj: cycleStart,
     edit: { init: () => String(S.startChannel || ""), digits: true, max: 3, set: (t) => { const n = +t; if (!t) return setS({ startChannel: 0 }); if (channels.some((x) => x.num === n)) setS({ startChannel: n }); else flash("NO SUCH CHANNEL"); } } },
   { l: "FAVORITES ONLY (GUIDE, UP/DOWN)", v: () => onoff(S.favOnly) + "  (" + S.favorites.length + " SAVED)", tog: () => setS({ favOnly: !S.favOnly }) },
@@ -704,7 +722,7 @@ function renderSettings() {
     el.onclick = () => { sSel = i; settingAct(0); };
     box.append(el);
   }
-  $("#shelp").textContent = sEdit ? "TYPE THEN ENTER TO SAVE   ESC CANCEL" : "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER TOGGLE OR EDIT   S/ESC CLOSE";
+  $("#shelp").textContent = sEdit ? "TYPE THEN ENTER TO SAVE   ESC CANCEL" : rows[sSel] && rows[sSel].help ? rows[sSel].help : "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER TOGGLE OR EDIT   S/ESC CLOSE";
   $("#sver").textContent = "v" + (window.bw && window.bw.version || "");
 }
 function settingAct(dir) { // dir: -1/+1 from arrows, 0 from Enter or a click

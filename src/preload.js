@@ -11,5 +11,9 @@ contextBridge.exposeInMainWorld("bw", {
   onUpdate: (ev, cb) => ipcRenderer.on(ev, (e, d) => cb(d)),
   updateCheck: () => ipcRenderer.send("update-check"),
   updateGo: () => ipcRenderer.send("update-go"),
-  version: "2.7.0",
+  accountStatus: () => ipcRenderer.invoke("account-status"),
+  accountSignIn: (svc) => ipcRenderer.invoke("account-signin", svc),
+  accountSignOut: (svc) => ipcRenderer.invoke("account-signout", svc),
+  onAccount: (cb) => ipcRenderer.on("account-changed", (e, s) => cb(s)),
+  version: "2.8.0",
 });
