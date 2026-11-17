@@ -112,7 +112,7 @@ const LTN = {
 const ltnFree = (n) => { while (channels.some((c) => c.num === n)) n++; return n; };
 const ltnAdd = (c) => { if (!channels.some((x) => x.id === c.id)) { c.cat = c.cat || "Love Thy Nerd"; channels.push(c); } };
 function ltnInjectShows() { // one channel per YouTube show in LTN.shows
-  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [], extraPrev: s.listsPrev || null, extraFrom: ltnWhen(s.listsFrom) }, twitch: s.twitch || [], blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." + ((s.twitch || []).length ? " Also switches to Twitch (" + s.twitch.join(", ") + ") whenever that is live." : "") });
+  const mk = (s, num) => ({ id: "ltn-yt-" + s.id, num, name: s.name, kind: "yt", ytid: s.id, yt: { list: "UULF" + s.id.slice(2), sched: true, wall: true, random: s.id === LTN.playsId, extra: s.lists || [], extraPrev: s.listsPrev || null, extraFrom: ltnWhen(s.listsFrom) }, twitch: s.twitch || [], grp: s.group === "NCMC" ? "NCMC" : "LTN", cat: s.group === "NCMC" ? "Nerd Culture Ministry Collective" : undefined, blurb: s.info + ": full videos only, no Shorts. Always on and shuffled, the same for everyone, and the live stream whenever the show is live." + ((s.twitch || []).length ? " Also switches to Twitch (" + s.twitch.join(", ") + ") whenever that is live." : "") });
   for (const s of LTN.shows) {
     if (s.hidden) { ltnPlaysCh = mk(s, 0); ltnPlaysCh.cat = "Love Thy Nerd"; continue; } // a source only, not in the lineup
     ltnAdd(mk(s, ltnFree(s.num)));
@@ -128,6 +128,7 @@ function injectLtnChannels() {
 
 /* ---------- shared state ---------- */
 let ltnData = null, ltnAt = 0, ltnPage = 0, ltnPageTimer = null, ltnRefreshTimer = null;
+let acct = { twitch: false, youtube: false }; // which accounts are signed in on this PC (asked of the app; only yes/no, never a password)
 let ltnLiveMap = {}, ltnTwMap = {}, ltnTw = null, ltnTunedLive = false, ltnTunedSig = "", ltnPollTimers = [], ltnNextTimer = null;
 let ltnPlaysCh = null; // the LTN Plays Games YouTube channel: a hidden source, not in the lineup
 const ltnMirror = () => ltnPlaysCh;
@@ -365,7 +366,7 @@ async function ltnPollTuned() {
 // shows up here by itself. If it cannot be reached the last good copy (kept on this PC) or the built-in lineup is used, so nothing breaks.
 const LTN_SHOWS0 = LTN.shows.slice(), LTN_SCHEDULE0 = LTN.schedule;
 const ltnWhen = (v) => { const t = typeof v === "number" ? v : Date.parse(v || ""); return Number.isFinite(t) ? t : 0; }; // a time given as a date string or milliseconds -> milliseconds (0 = none)
-const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",") + "|" + (s.listsPrev || []).join(",") + "|" + ltnWhen(s.listsFrom) + "|" + (s.twitch || []).join(",")).join(";");
+const ltnShowSig = (list) => list.map((s) => s.id + "|" + s.name + "|" + s.num + "|" + (s.lists || []).join(",") + "|" + (s.listsPrev || []).join(",") + "|" + ltnWhen(s.listsFrom) + "|" + (s.twitch || []).join(",") + "|" + (s.group || "")).join(";");
 let ltnCfgVer = 0, ltnCfgSig = ltnShowSig(LTN_SHOWS0.filter((s) => !s.hidden)), ltnRemoteBusy = false;
 const ltnStr = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 const ltnHttps = (v) => { try { const u = new URL(String(v)); return u.protocol === "https:" ? u.href : ""; } catch { return ""; } };
@@ -380,8 +381,11 @@ function ltnCleanCfg(c) { // never trust what came over the wire: keep only well
       seen.add(s.id);
       const src = Array.isArray(s.lists) ? s : (LTN_SHOWS0.find((x) => x.id === s.id) || {}); // a show with no "lists" keeps the built-in ones, and any change scheduled for them
       const ids = (a) => (Array.isArray(a) ? a : []).map(String).filter((l) => /^PL[\w-]{10,60}$/.test(l)).slice(0, 3);
-      list.push({ id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: ids(src.lists), listsPrev: Array.isArray(src.listsPrev) ? ids(src.listsPrev) : null, listsFrom: ltnWhen(src.listsFrom), twitch: [...new Set((Array.isArray(s.twitch) ? s.twitch : (LTN_SHOWS0.find((x) => x.id === s.id) || {}).twitch || []).map(ltnTwLogin).filter(Boolean))].slice(0, 3) });
+      list.push({ group: (s.group !== undefined ? s.group : (LTN_SHOWS0.find((x) => x.id === s.id) || {}).group) === "NCMC" ? "NCMC" : "LTN", id: s.id, name: ltnStr(s.name, 40).toUpperCase() || "CHANNEL", info: ltnStr(s.info, 120), num: 4 + list.length, lists: ids(src.lists), listsPrev: Array.isArray(src.listsPrev) ? ids(src.listsPrev) : null, listsFrom: ltnWhen(src.listsFrom), twitch: [...new Set((Array.isArray(s.twitch) ? s.twitch : (LTN_SHOWS0.find((x) => x.id === s.id) || {}).twitch || []).map(ltnTwLogin).filter(Boolean))].slice(0, 3) });
     }
+    const g = (s) => (s.group === "NCMC" ? 1 : 0);
+    list.sort((a, b) => g(a) - g(b)); // LTN first, then Nerd Culture Ministry Collective, each in the order the admin gave
+    list.forEach((s, i) => { s.num = 4 + i; });
     if (list.length) out.shows = list;
   }
   if (Array.isArray(c.pages)) for (const p of c.pages.slice(0, 30)) {
@@ -563,7 +567,12 @@ function ltnPages() {
   const hid = (k) => (LTN.hide || []).includes(k);
   // anything about being live is only here while something is live
   const live = channels.filter((c) => ltnIsOwn(c) && c.kind !== "ltn" && isLive(c));
-  if (live.length && !hid("live")) pages.push(() => ["LIVE NOW", live.map((c) => `<div class="lrow"><span class="lrs">CH ${c.num}  ${esc(c.name)}</span><span class="lrt">${esc(ltnNow(c).t)}</span><span class="lra">&#9679; LIVE</span></div>`).join("")]);
+  if (live.length && !hid("live")) pages.push(() => ["LIVE NOW", live.slice(0, 6).map((c) => {
+    const v = ltnNowVideo(c), tw = v && v.tw, id = v && v.id;
+    const chain = tw ? ["https://static-cdn.jtvnw.net/previews-ttv/live_user_" + tw + "-640x360.jpg?t=" + Math.floor(Date.now() / 60000)] : id ? ["maxresdefault_live", "hqdefault_live", "hqdefault"].map((q) => "https://i.ytimg.com/vi/" + id + "/" + q + ".jpg") : [];
+    const img = chain.length ? `<img src="${esc(chain[0])}" data-c="${esc(chain.join("|"))}" data-n="1" onerror="var c=this.dataset.c.split('|'),n=+this.dataset.n;if(n<c.length){this.dataset.n=n+1;this.src=c[n]}else this.style.visibility='hidden'">` : "";
+    return `<div class="llive"><div class="lthumb">${img}<span class="lnum">${c.num}</span></div><div class="ltxt"><div class="lrs">CH ${c.num}  ${esc(c.name)}</div><div class="lrt">${esc(ltnNow(c).t)}</div></div><span class="lra">&#9679; LIVE</span></div>`;
+  }).join("") + (live.length > 6 ? `<div class="lsub">+ ${live.length - 6} more live</div>` : "")]);
   if (ltnTw && ltnTw.live && !hid("twitch")) pages.push(() => {
     const t = ltnTw;
     const img = `<img src="https://static-cdn.jtvnw.net/previews-ttv/live_user_${LTN.twitch}-1280x720.jpg?t=${Math.floor(Date.now() / 60000)}" onerror="this.style.visibility='hidden'">`;
@@ -588,10 +597,20 @@ function ltnPages() {
   // mission trips, soonest first
   if (d && d.trips && d.trips.length && !hid("trips")) pages.push(() => ["MISSION TRIPS", `<div class="lgrid3">${d.trips.slice(0, 9).map((t) => card(t.img, t.t, [(t.where || "").trim(), t.days <= 0 ? "STARTS TODAY" : t.days + (t.days === 1 ? " DAY" : " DAYS") + " AWAY", t.open === true ? "REGISTRATION OPEN" : t.open === false ? "REGISTRATION CLOSED" : "", t.cost || ""].filter(Boolean).join("  •  "))).join("")}</div>`]);
   if (d && d.yt) {
-    const vids = hid("youtube") ? [] : d.yt.videos.slice(0, 18);
+    const grpOf = (cid) => { const s = LTN.shows.find((x) => x.id === cid); return s ? (s.group === "NCMC" ? "NCMC" : "LTN") : ""; }; // from today's channel list, so a tag changed in the admin applies at once
+    const ltnVids = d.yt.videos.filter((v) => grpOf(v.cid) === "LTN"), ncmcVids = d.yt.videos.filter((v) => grpOf(v.cid) === "NCMC");
+    const ltnShows = d.yt.shows.filter((v) => grpOf(v.cid) === "LTN"), ncmcShows = d.yt.shows.filter((v) => grpOf(v.cid) === "NCMC");
+    const vids = hid("youtube") ? [] : ltnVids.slice(0, 18);
     for (let i = 0; i < vids.length; i += 9) pages.push(() => ["NEW ON YOUTUBE", `<div class="lgrid3">${vids.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, [v.show, ago(v.at)].filter(Boolean).join("  •  "))).join("")}</div>`]);
     // every show on one page
-    if (d.yt.shows.length && !hid("shows")) pages.push(() => ["OUR SHOWS", `<div class="lshows">${d.yt.shows.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`]);
+    const showRows = (list) => `<div class="lshows">${list.map((v) => `<div class="lrow"><span class="lrs">${esc(v.show)}</span><span class="lrt">${esc(v.t)}</span><span class="lra">${ago(v.at)}</span></div>`).join("")}</div>`;
+    if (ltnShows.length && !hid("shows")) pages.push(() => ["OUR SHOWS", showRows(ltnShows)]);
+    // Nerd Culture Ministry Collective: what is new on the channels added from outside LTN
+    if (!hid("ncmc")) {
+      const nv = ncmcVids.slice(0, 18);
+      for (let i = 0; i < nv.length; i += 9) pages.push(() => ["NERD CULTURE MINISTRY COLLECTIVE: NEW VIDEOS", `<div class="lgrid3">${nv.slice(i, i + 9).map((v) => card("https://i.ytimg.com/vi/" + v.id + "/mqdefault.jpg", v.t, [v.show, ago(v.at)].filter(Boolean).join("  \u2022  "))).join("")}</div>`]);
+      if (ncmcShows.length) pages.push(() => ["NERD CULTURE MINISTRY COLLECTIVE: THE CHANNELS", showRows(ncmcShows)]);
+    }
   }
   // our Spotify playlists, five across
   if (d && d.spotify && d.spotify.length && !hid("spotify")) for (let i = 0; i < d.spotify.length; i += 15) pages.push(() => ["SPOTIFY PLAYLISTS", `<div class="lspot">${d.spotify.slice(i, i + 15).map((s) => `<div class="sp"><img src="${esc(s.img)}" onerror="this.style.visibility='hidden'"><div class="spt">${esc(s.t)}</div></div>`).join("")}</div>`]);
@@ -741,7 +760,7 @@ async function ltnWarm() { // load every channel's list in the background (one a
 /* ---------- YouTube channels and the Daily Bible: YouTube's embedded player ---------- */
 let ytJumpVid = "", ytRecent = [];
 let ytInfo = {}, ytListenTimer = null, ytPos = 0, twPlayer = null, ytLastVid = "", ytWant = -1, ytVidAtCmd = "";
-const ytEmbed = (path) => "https://www.youtube-nocookie.com/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
+const ytEmbed = (path) => "https://www." + (acct.youtube ? "youtube.com" : "youtube-nocookie.com") + "/embed/" + path + (path.includes("?") ? "&" : "?") + "autoplay=1&loop=1&controls=0&disablekb=1&modestbranding=1&rel=0&iv_load_policy=3&fs=0&playsinline=1&cc_load_policy=0&enablejsapi=1";
 function ytCmd(func, args) {
   const f = $("#ytf");
   if (f && f.contentWindow && /youtube/.test(f.getAttribute("src") || "")) f.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*");

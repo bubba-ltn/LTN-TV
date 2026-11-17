@@ -59,3 +59,23 @@ A channel's programme is worked out from the clock and its video lists, so every
 ## Twitch on any channel
 
 A show channel can have up to 3 Twitch channels (in the admin: **Channels**, the "Twitch channels" box under the channel; or `twitch: ["login"]` on a show in `LTN.shows`). The app checks them with the other live checks (every 4 minutes, every 75 seconds for the channel being watched). While one is live, that channel shows the Twitch stream, the guide, banner and LTN News "live now" page say so, and when it ends the channel goes back to its videos. If the channel's own YouTube stream is live too, YouTube wins. A live stream works like a YouTube live stream does: it is not part of the 2-hour rule, since it only exists while the stream is on.
+
+## Signing in to Twitch and YouTube (and your privacy)
+
+Settings (**S**) has **TWITCH ACCOUNT** and **YOUTUBE ACCOUNT**. Press Enter to sign in; a small window opens on the real twitch.tv or Google sign-in page. Signing in lets the players know who is watching, so Twitch Turbo and YouTube Premium (or a channel subscription) apply.
+
+What LTN TV does with that, and what it does not:
+
+- **Your password never goes through LTN TV.** You type it on the site's own page. That window has no connection to the app (no preload script, no injected code, sandboxed), can only visit twitch.tv or Google/YouTube addresses, is never given camera, microphone or location, and its title shows the real address.
+- **LTN TV keeps nothing.** No password, code or token is read, copied, logged or saved by the app. The only thing on your PC is the site's own login cookie, stored in this app's data folder like a browser would, and the app only checks that it exists (to say SIGNED IN or SIGNED OUT), never what it says.
+- **Nothing is sent anywhere.** There is no LTN server for accounts and no tracking; who signed in is not known to us.
+- **Sign out** (Enter on the account row) deletes the login and the site's saved data from this PC. **SIGN OUT WHEN LTN TV CLOSES** does it every time the app closes. Signing out here does not sign you out of twitch.tv or Google on other devices.
+- While signed in to YouTube the app uses YouTube's normal player (which knows you); signed out it uses the privacy-friendly youtube-nocookie player.
+
+The code for this is in `src/accounts.js` (about 100 lines, all of it).
+
+The LTN News **Live Now** page now shows each live channel's thumbnail and its channel number.
+
+## Love Thy Nerd and Nerd Culture Ministry Collective
+
+In the admin (**Channels**) every channel has a tag: **LTN** or **NCMC**. LTN channels are listed first; NCMC channels follow under a **NERD CULTURE MINISTRY COLLECTIVE** header in the guide (channel numbers continue in that order). In LTN News, **OUR SHOWS** and **NEW ON YOUTUBE** only cover LTN channels, and NCMC has its own pages: **NERD CULTURE MINISTRY COLLECTIVE: NEW VIDEOS** and **...: THE CHANNELS** (switch them off with the "NCMC" box under Built-in pages). A channel with no tag counts as LTN.

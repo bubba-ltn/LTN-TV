@@ -504,10 +504,14 @@ function renderGuide() {
   const per = Math.max(3, Math.floor((rows.clientHeight + gap) / (rh + gap)));
   if (gp < gTop) gTop = gp; else if (gp >= gTop + per) gTop = gp - per + 1;
   gTop = Math.max(0, Math.min(gTop, list.length - per));
+  const hp = list.findIndex((i, p) => channels[i].grp === "NCMC" && (p === 0 || channels[list[p - 1]].grp !== "NCMC")); // where the Nerd Culture Ministry Collective channels begin
+  let cnt = per;
+  if (hp >= 0 && hp >= gTop && hp < gTop + per) { cnt = per - 1; if (gp >= gTop + cnt) gTop = Math.min(gp - cnt + 1, Math.max(0, list.length - cnt)); } // the header takes a row's room
   rows.textContent = "";
   let selProg = null;
-  for (let pi = gTop; pi < Math.min(list.length, gTop + per); pi++) {
+  for (let pi = gTop; pi < Math.min(list.length, gTop + cnt); pi++) {
     const i = list[pi], ch = channels[i];
+    if (pi === hp) { const hd = document.createElement("div"); hd.className = "ghead"; hd.textContent = "NERD CULTURE MINISTRY COLLECTIVE"; rows.append(hd); }
     const row = document.createElement("div"); row.className = "grow" + (i === tuned ? " cur" : "");
     const box = document.createElement("div"); box.className = "gch" + (isFav(ch.id) ? " fav" : "") + (isLive(ch) ? " onair" : "");
     box.innerHTML = "<b></b><span></span>"; box.firstChild.textContent = ch.num; box.lastChild.textContent = ch.name;
@@ -665,6 +669,21 @@ function cycleStart(d) {
   const i = Math.max(0, nums.indexOf(S.startChannel));
   setS({ startChannel: nums[(i + d + nums.length) % nums.length] });
 }
+const ACCT_HELP = "SIGN-IN HAPPENS ON TWITCH.TV / GOOGLE ITSELF. LTN TV NEVER SEES OR KEEPS YOUR PASSWORD, AND SENDS NOTHING ANYWHERE. SIGN OUT DELETES THE LOGIN FROM THIS PC.";
+function acctToggle(svc) {
+  if (!window.bw || !window.bw.accountSignIn) return flash("NOT AVAILABLE");
+  if (acct[svc]) window.bw.accountSignOut(svc).then(() => flash((svc === "twitch" ? "TWITCH" : "YOUTUBE") + " SIGNED OUT"));
+  else window.bw.accountSignIn(svc);
+}
+function acctChanged(s) { // a sign-in or sign-out happened: the players start again so they know who is watching
+  const was = JSON.stringify(acct);
+  acct = { twitch: !!(s && s.twitch), youtube: !!(s && s.youtube) };
+  if (JSON.stringify(acct) === was) return;
+  if (settingsOpen) renderSettings();
+  const ch = channels[tuned];
+  if (started && ch && ltnIsOwn(ch) && ch.kind !== "ltn") tune(tuned, false);
+}
+if (window.bw && window.bw.accountStatus) { window.bw.accountStatus().then(acctChanged).catch(() => {}); window.bw.onAccount(acctChanged); }
 const settingRows = () => [
   { l: "VOLUME", v: () => Math.round(S.volume * 100) + "%", adj: (d) => setS({ volume: Math.round(clamp01(S.volume + d * 0.05) * 100) / 100 }) },
   { l: "MUTE WINDOW", v: () => onoff(S.muteWindow), tog: () => setS({ muteWindow: !S.muteWindow }) },
@@ -672,6 +691,9 @@ const settingRows = () => [
   { l: "MINIMIZE TO TRAY", v: () => onoff(S.minimizeToTray), tog: () => setS({ minimizeToTray: !S.minimizeToTray }) },
   { l: "CLOSE BUTTON GOES TO TRAY", v: () => onoff(S.closeToTray), tog: () => setS({ closeToTray: !S.closeToTray }) },
   { l: "LAUNCH WITH WINDOWS", v: () => onoff(S.launchAtLogin), tog: () => setS({ launchAtLogin: !S.launchAtLogin }) },
+  { l: "TWITCH ACCOUNT", v: () => (acct.twitch ? "SIGNED IN  (ENTER TO SIGN OUT)" : "SIGNED OUT  (ENTER TO SIGN IN)"), help: ACCT_HELP, tog: () => acctToggle("twitch") },
+  { l: "YOUTUBE ACCOUNT", v: () => (acct.youtube ? "SIGNED IN  (ENTER TO SIGN OUT)" : "SIGNED OUT  (ENTER TO SIGN IN)"), help: ACCT_HELP, tog: () => acctToggle("youtube") },
+  { l: "SIGN OUT WHEN LTN TV CLOSES", v: () => onoff(S.signOutOnExit), help: ACCT_HELP, tog: () => setS({ signOutOnExit: !S.signOutOnExit }) },
   { l: "START CHANNEL", v: () => (S.startChannel ? S.startChannel + " " + chNameOf(S.startChannel) : "LAST WATCHED"), adj: cycleStart,
     edit: { init: () => String(S.startChannel || ""), digits: true, max: 3, set: (t) => { const n = +t; if (!t) return setS({ startChannel: 0 }); if (channels.some((x) => x.num === n)) setS({ startChannel: n }); else flash("NO SUCH CHANNEL"); } } },
   { l: "FAVORITES ONLY (GUIDE, UP/DOWN)", v: () => onoff(S.favOnly) + "  (" + S.favorites.length + " SAVED)", tog: () => setS({ favOnly: !S.favOnly }) },
@@ -704,7 +726,7 @@ function renderSettings() {
     el.onclick = () => { sSel = i; settingAct(0); };
     box.append(el);
   }
-  $("#shelp").textContent = sEdit ? "TYPE THEN ENTER TO SAVE   ESC CANCEL" : "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER TOGGLE OR EDIT   S/ESC CLOSE";
+  $("#shelp").textContent = sEdit ? "TYPE THEN ENTER TO SAVE   ESC CANCEL" : rows[sSel] && rows[sSel].help ? rows[sSel].help : "UP/DOWN SELECT   LEFT/RIGHT CHANGE   ENTER TOGGLE OR EDIT   S/ESC CLOSE";
   $("#sver").textContent = "v" + (window.bw && window.bw.version || "");
 }
 function settingAct(dir) { // dir: -1/+1 from arrows, 0 from Enter or a click
