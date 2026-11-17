@@ -75,3 +75,7 @@ What LTN TV does with that, and what it does not:
 The code for this is in `src/accounts.js` (about 100 lines, all of it).
 
 The LTN News **Live Now** page now shows each live channel's thumbnail and its channel number.
+
+## Love Thy Nerd and Nerd Culture Ministry Collective
+
+In the admin (**Channels**) every channel has a tag: **LTN** or **NCMC**. LTN channels are listed first; NCMC channels follow under a **NERD CULTURE MINISTRY COLLECTIVE** header in the guide (channel numbers continue in that order). In LTN News, **OUR SHOWS** and **NEW ON YOUTUBE** only cover LTN channels, and NCMC has its own pages: **NERD CULTURE MINISTRY COLLECTIVE: NEW VIDEOS** and **...: THE CHANNELS** (switch them off with the "NCMC" box under Built-in pages). A channel with no tag counts as LTN.

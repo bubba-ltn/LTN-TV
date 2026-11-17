@@ -504,10 +504,14 @@ function renderGuide() {
   const per = Math.max(3, Math.floor((rows.clientHeight + gap) / (rh + gap)));
   if (gp < gTop) gTop = gp; else if (gp >= gTop + per) gTop = gp - per + 1;
   gTop = Math.max(0, Math.min(gTop, list.length - per));
+  const hp = list.findIndex((i, p) => channels[i].grp === "NCMC" && (p === 0 || channels[list[p - 1]].grp !== "NCMC")); // where the Nerd Culture Ministry Collective channels begin
+  let cnt = per;
+  if (hp >= 0 && hp >= gTop && hp < gTop + per) { cnt = per - 1; if (gp >= gTop + cnt) gTop = Math.min(gp - cnt + 1, Math.max(0, list.length - cnt)); } // the header takes a row's room
   rows.textContent = "";
   let selProg = null;
-  for (let pi = gTop; pi < Math.min(list.length, gTop + per); pi++) {
+  for (let pi = gTop; pi < Math.min(list.length, gTop + cnt); pi++) {
     const i = list[pi], ch = channels[i];
+    if (pi === hp) { const hd = document.createElement("div"); hd.className = "ghead"; hd.textContent = "NERD CULTURE MINISTRY COLLECTIVE"; rows.append(hd); }
     const row = document.createElement("div"); row.className = "grow" + (i === tuned ? " cur" : "");
     const box = document.createElement("div"); box.className = "gch" + (isFav(ch.id) ? " fav" : "") + (isLive(ch) ? " onair" : "");
     box.innerHTML = "<b></b><span></span>"; box.firstChild.textContent = ch.num; box.lastChild.textContent = ch.name;
