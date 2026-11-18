@@ -15,5 +15,5 @@ contextBridge.exposeInMainWorld("bw", {
   accountSignIn: (svc) => ipcRenderer.invoke("account-signin", svc),
   accountSignOut: (svc) => ipcRenderer.invoke("account-signout", svc),
   onAccount: (cb) => ipcRenderer.on("account-changed", (e, s) => cb(s)),
-  version: "2.8.0",
+  version: "2.8.1",
 });
